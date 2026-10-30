@@ -1,0 +1,14 @@
+node_modules/
+.pnpm-store/
+.next/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+!.env.*.example
+apps/*/.env
+apps/*/.env.*
+!apps/*/.env.example
+!.turbo/
+*.log

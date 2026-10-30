@@ -1,0 +1,27 @@
+{
+  "name": "nirvaan-portal",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @nirvaan/api --filter @nirvaan/web dev",
+    "build": "pnpm --filter @nirvaan/api build && pnpm --filter @nirvaan/web build",
+    "lint": "pnpm --parallel --filter @nirvaan/api --filter @nirvaan/web lint",
+    "db:generate": "pnpm --filter @nirvaan/api db:generate",
+    "db:push": "pnpm --filter @nirvaan/api db:push",
+    "db:migrate:data": "pnpm --filter @nirvaan/api db:migrate:data",
+    "db:seed": "pnpm --filter @nirvaan/api db:seed"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "prisma"
+    ]
+  }
+}
