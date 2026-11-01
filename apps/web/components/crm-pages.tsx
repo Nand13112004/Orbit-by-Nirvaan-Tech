@@ -47,12 +47,13 @@ function StatusPill({ status }: { status: string }) {
 
 export function LeadsPage() {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [deferredSearch, setDeferredSearch] = useState(search);
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
-  const queryClient = useQueryClient();
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: User }>('/auth/me') });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDeferredSearch(search.trim()), 250);
@@ -67,6 +68,23 @@ export function LeadsPage() {
     mutationFn: ({ id, nextStatus }: { id: string; nextStatus: string }) => mutate(`/leads/${id}`, 'PATCH', { status: nextStatus }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leads'] }),
   });
+  const deleteLead = useMutation({
+    mutationFn: (id: string) => mutate(`/leads/${id}`, 'DELETE'),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics'] }),
+        queryClient.invalidateQueries({ queryKey: ['follow-ups'] }),
+      ]);
+    },
+  });
+
+  function confirmDelete(lead: Lead) {
+    if (deleteLead.isPending) return;
+    if (window.confirm(`Delete "${lead.name}"? This will permanently remove this lead and its notes and follow-ups.`)) {
+      deleteLead.mutate(lead.id);
+    }
+  }
 
   function exportCsv() {
     const rows = query.data?.items ?? [];
@@ -87,6 +105,7 @@ export function LeadsPage() {
     <section className="crm-page">
       <PageHeader eyebrow="Customer relationships" title="Lead management" description="Review, search, and move your assigned leads through the sales process." action={<div className="crm-actions"><button className="quiet crm-button" onClick={exportCsv} disabled={!query.data?.items.length}><Download size={15} /> Export current page</button><Link className="primary crm-button" href="leads/new"><Plus size={16} /> New lead</Link></div>} />
       {statusUpdate.isError && <ErrorPanel message={statusUpdate.error.message} />}
+      {deleteLead.isError && <ErrorPanel message={deleteLead.error.message} />}
       <section className="panel crm-table-panel">
         <div className="crm-toolbar">
           <label className="crm-search"><Search size={16} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, company, or email" /></label>
@@ -101,7 +120,7 @@ export function LeadsPage() {
               <td><select className="crm-status-select" aria-label={`Status for ${lead.name}`} value={lead.status} disabled={statusUpdate.isPending} onChange={(event) => statusUpdate.mutate({ id: lead.id, nextStatus: event.target.value })}>{STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABELS[item]}</option>)}</select></td>
               <td>{lead.assignee?.name ?? 'Unassigned'}</td>
               <td>{formatDate(lead.updatedAt)}</td>
-              <td><Link className="crm-icon-link" href={`leads/${lead.id}`} aria-label={`View ${lead.name}`}><ArrowUpRight size={17} /></Link></td>
+              <td><div className="crm-row-actions"><Link className="crm-icon-link" href={`leads/${lead.id}`} aria-label={`View ${lead.name}`}><ArrowUpRight size={17} /></Link>{(me.data?.user.role === 'ADMIN' || me.data?.user.role === 'MANAGER') && <button type="button" className="crm-delete-row" disabled={deleteLead.isPending} onClick={() => confirmDelete(lead)}>Delete</button>}</div></td>
             </tr>)}
           </tbody></table></div>
         ) : <div className="crm-empty"><Users size={25} /><strong>{deferredSearch || status ? 'No matching leads' : 'No leads yet'}</strong><p>{deferredSearch || status ? 'Try another search or status filter.' : 'Create a lead to start building your pipeline.'}</p>{!deferredSearch && !status && <Link className="primary crm-button" href="leads/new"><Plus size={16} /> Create a lead</Link>}</div>}
@@ -258,7 +277,7 @@ export function LeadDetailsPage() {
         {lead.notes.length ? <div className="crm-note-list">{lead.notes.map((note) => <article key={note.id}><p>{note.content}</p><small>{note.author?.name ?? 'Workspace member'} · {formatDate(note.createdAt)}</small></article>)}</div> : <p className="crm-muted">No activity notes yet.</p>}
       </section>
     </div>
-    {me.data?.user.role === 'ADMIN' && <section className="panel crm-delete-lead">
+    {(me.data?.user.role === 'ADMIN' || me.data?.user.role === 'MANAGER') && <section className="panel crm-delete-lead">
       <div><h2>Delete this lead</h2><p>This permanently deletes the lead, its notes, and its follow-ups.</p></div>
       <button type="button" className="crm-delete-button" disabled={deleting} onClick={() => void deleteLead()}>{deleting ? 'Deleting…' : 'Delete lead'}</button>
     </section>}

@@ -171,7 +171,7 @@ export class LeadsController {
 
   @Delete(':id')
   async remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
-    if (user.role !== UserRole.ADMIN) throw new ForbiddenException('Only admins can delete leads');
+    if (user.role === UserRole.MEMBER) throw new ForbiddenException('Only admins and managers can delete leads');
     await this.ensureLead(user, id);
     await this.prisma.lead.delete({ where: { id } });
     this.analyticsCache.invalidate();

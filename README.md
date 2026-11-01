@@ -54,7 +54,7 @@ Orbit by Nirvaan Tech is a role-based business workspace built as a pnpm monorep
 ## Accounts and access
 
 - **Admin:** all leads and analytics; user creation/management, lead sources, settings, and password resets.
-- **Manager:** leads assigned to their direct team members; can create and assign leads to those members; can see team users and team follow-ups/analytics. Cannot manage users, change roles, or manage Admin accounts.
+- **Manager:** leads assigned to their direct team members; can create, assign, and delete leads within their team scope; can see team users and team follow-ups/analytics. Cannot manage users, change roles, or manage Admin accounts.
 - **Team Member:** only assigned leads; can create leads, update lead data/status, add notes, and schedule follow-ups. Cannot manage users or permissions.
 
 ## Workspace pages

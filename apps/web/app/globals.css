@@ -1002,6 +1002,34 @@ html.dark .dashboard-content [class~="divide-slate-100"] > :not(:last-child) {
   color: #2563eb;
 }
 
+.crm-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.crm-delete-row {
+  min-height: 29px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  padding: 4px 8px;
+  color: #b91c1c;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.crm-delete-row:hover:not(:disabled) {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.crm-delete-row:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
 .crm-empty,
 .crm-state {
   display: flex;
@@ -1554,6 +1582,8 @@ html.dark .crm-delete-lead { border-color: #57333d; }
 html.dark .crm-delete-lead p { color: #9aa8bc; }
 html.dark .crm-delete-button { border-color: #8d3948; background: #261b25; color: #fda4af; }
 html.dark .crm-delete-button:hover:not(:disabled) { background: #3a202b; }
+html.dark .crm-delete-row { color: #fda4af; }
+html.dark .crm-delete-row:hover:not(:disabled) { border-color: #57333d; background: #3a202b; }
 
 @media (max-width: 900px) {
   .workspace-sidebar { width: 220px; }
