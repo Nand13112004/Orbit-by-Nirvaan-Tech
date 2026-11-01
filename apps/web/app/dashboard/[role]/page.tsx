@@ -40,12 +40,9 @@ export default function DashboardPage() {
   const [deferredUserSearch, setDeferredUserSearch] = useState('');
   const [userPage, setUserPage] = useState(1);
   const [showLeadForm, setShowLeadForm] = useState(false);
-  const [showUserForm, setShowUserForm] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [showSourceForm, setShowSourceForm] = useState(false);
-  const [showSettingsForm, setShowSettingsForm] = useState(false);
   const [actionLead, setActionLead] = useState<{ id: string; name: string; action: 'note' | 'follow-up' } | null>(null);
-  const [resetUser, setResetUser] = useState<User | null>(null);
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [apiMetrics, setApiMetrics] = useState<ApiPerformanceMetric[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -103,7 +100,7 @@ export default function DashboardPage() {
   const users = useQuery({
     queryKey: ['users', user?.id, user?.role, userPage, deferredUserSearch],
     queryFn: () => apiWithMetadata<User[]>(`/users?page=${userPage}&search=${encodeURIComponent(deferredUserSearch)}`),
-    enabled: user?.role === 'ADMIN' || user?.role === 'MANAGER',
+    enabled: user?.role === 'MANAGER',
     placeholderData: keepPreviousData,
   });
   const totalUsers = Number(users.data?.headers.get('x-total-count') ?? users.data?.data.length ?? 0);
@@ -111,18 +108,13 @@ export default function DashboardPage() {
   const managerOptions = useQuery({
     queryKey: ['users', user?.id, user?.role, 'managers'],
     queryFn: () => api<User[]>('/users?active=true'),
-    enabled: (user?.role === 'ADMIN' || user?.role === 'MANAGER') && (showLeadForm || showUserForm),
+    enabled: (user?.role === 'ADMIN' || user?.role === 'MANAGER') && showLeadForm,
     staleTime: 30_000,
   });
   const sources = useQuery({
     queryKey: ['sources'],
     queryFn: () => api<{ id: string; name: string }[]>('/sources'),
-    enabled: !!user && showLeadForm,
-  });
-  const settings = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api<{ key: string; value: string }[]>('/settings'),
-    enabled: user?.role === 'ADMIN' && showSettingsForm,
+    enabled: !!user && (showLeadForm || showSourceForm),
   });
 
   useEffect(() => {
@@ -141,16 +133,11 @@ export default function DashboardPage() {
     queryClient.invalidateQueries({ queryKey: ['analytics'] }),
     queryClient.invalidateQueries({ queryKey: ['follow-ups'] }),
   ]);
-  const refreshUsers = () => Promise.all([
-    refreshLeads(),
-    queryClient.invalidateQueries({ queryKey: ['users'] }),
-  ]);
   const refreshFollowUps = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['follow-ups'] }),
     queryClient.invalidateQueries({ queryKey: ['analytics'] }),
   ]);
   const refreshSources = () => queryClient.invalidateQueries({ queryKey: ['sources'] });
-  const refreshSettings = () => queryClient.invalidateQueries({ queryKey: ['settings'] });
   const logout = useMutation({
     mutationFn: async () => mutate('/auth/logout', 'POST'),
     onSuccess: () => { clearCsrfToken(); queryClient.clear(); router.replace('/'); },
@@ -169,11 +156,6 @@ export default function DashboardPage() {
   const deleteLead = useMutation({
     mutationFn: (id: string) => mutate(`/leads/${id}`, 'DELETE'),
     onSuccess: refreshLeads,
-    onError: (error) => setNotice(error.message),
-  });
-  const updateUser = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: unknown }) => mutate(`/users/${id}`, 'PATCH', data),
-    onSuccess: refreshUsers,
     onError: (error) => setNotice(error.message),
   });
   const updateFollowUp = useMutation({
@@ -262,7 +244,7 @@ export default function DashboardPage() {
           <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Leads'} href="#leads"><span className="flex items-center gap-3"><ListChecks size={17} />{sidebarOpen && 'Leads'}</span>{sidebarOpen && <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600">{leads.data?.total ?? '—'}</span>}</a>
           <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Follow-ups'} href="#follow-ups"><span className="flex items-center gap-3"><CalendarClock size={17} />{sidebarOpen && 'Follow-ups'}</span>{sidebarOpen && <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-[10px] text-amber-700">{analytics.data?.openFollowUps ?? '—'}</span>}</a>
           {(admin || manager) && <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : admin ? 'User management' : 'Your team'} href="#team"><span className="flex items-center gap-3"><Users size={17} />{sidebarOpen && (admin ? 'User management' : 'Your team')}</span>{sidebarOpen && admin && <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600">{users.data ? totalUsers : '—'}</span>}</a>}
-          {admin && <button className={`nav-item w-full ${sidebarOpen ? '' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Settings'} onClick={() => setShowSettingsForm(true)}><Settings2 size={17} />{sidebarOpen && 'Settings'}</button>}
+          {admin && <button className={`nav-item w-full ${sidebarOpen ? '' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Settings'} onClick={() => router.push(`${dashboardForRole(user.role)}/settings`)}><Settings2 size={17} />{sidebarOpen && 'Settings'}</button>}
         </nav>
         <div className="mt-auto border-t border-slate-200 pt-5">
           {sidebarOpen && <div className="mb-3 flex items-center gap-3 rounded-xl bg-slate-50 p-3">
@@ -296,7 +278,7 @@ export default function DashboardPage() {
             <a className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href="#leads"><ListChecks size={15} /> Leads</a>
             <a className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href="#follow-ups"><CalendarClock size={15} /> Follow-ups</a>
             {(admin || manager) && <a className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href="#team"><Users size={15} /> Team</a>}
-            {admin && <button className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" onClick={() => setShowSettingsForm(true)}><Settings2 size={15} /> Settings</button>}
+            {admin && <button className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" onClick={() => router.push(`${dashboardForRole(user.role)}/settings`)}><Settings2 size={15} /> Settings</button>}
           </nav>
         </header>
         <div id="overview" className="dashboard-content dashboard-main mx-auto px-4 py-6 sm:px-7 sm:py-8 lg:px-8">
@@ -304,7 +286,7 @@ export default function DashboardPage() {
           <div><p className="mb-2 text-[11px] font-semibold uppercase tracking-[.15em] text-blue-600">Your workspace · High velocity</p><h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">A unified view of your pipeline, customer relationships, and next steps.</p></div>
           <div className="dashboard-actions flex flex-wrap gap-2">
             <button className="quiet flex items-center gap-2 text-xs font-semibold" onClick={() => setShowPasswordForm(true)}><KeyRound size={15} /> Change password</button>
-            {admin && <button className="quiet flex items-center gap-2 text-xs font-semibold" onClick={() => setShowUserForm(true)}><Users size={15} className="text-blue-600" /> Add user</button>}
+            {admin && <button className="quiet flex items-center gap-2 text-xs font-semibold" onClick={() => setShowSourceForm(true)}><Settings2 size={15} /> Lead sources</button>}
             <button className="primary flex items-center gap-2 text-xs font-bold" onClick={() => setShowLeadForm(true)}><Plus size={16} /> New lead</button>
           </div>
         </div>
@@ -363,22 +345,18 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        {(admin || manager) && <section id="team" className="panel mt-5 scroll-mt-24">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7eb] px-5 py-4 sm:px-6"><div><div className="flex items-center gap-2"><Users size={17} className="text-blue-600" /><h2 className="font-semibold text-[#111827]">{admin ? 'User management' : 'Your team'}</h2></div><p className="mt-1 text-xs text-[#6b7280]">{admin ? 'Manage access, roles, and team assignments.' : 'Team member access is read-only.'}</p></div><span className="status-chip bg-blue-50 text-blue-700">{totalUsers} accounts</span></div>
+        {manager && <section id="team" className="panel mt-5 scroll-mt-24">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7eb] px-5 py-4 sm:px-6"><div><div className="flex items-center gap-2"><Users size={17} className="text-blue-600" /><h2 className="font-semibold text-[#111827]">Your team</h2></div><p className="mt-1 text-xs text-[#6b7280]">Team member access is read-only.</p></div><span className="status-chip bg-blue-50 text-blue-700">{totalUsers} accounts</span></div>
           <div className="border-b border-[#e5e7eb] px-5 py-3 sm:px-6"><label className="relative block"><span className="sr-only">Search users</span><Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#9ca3af]" /><input className="field pl-9" placeholder="Search users…" value={userSearch} onChange={(event) => setUserSearch(event.target.value)} /></label></div>
-          {users.isLoading ? <p className="p-5 text-sm text-[#6b7280]">Loading users…</p> : users.isError ? <p role="alert" className="p-5 text-sm text-red-700">Could not load users.</p> : userItems.length ? <div className="divide-y divide-slate-100">{userItems.map((item) => <div key={item.id} className="team-row flex flex-col items-start justify-between gap-3 px-5 py-4 sm:flex-row sm:items-center"><div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-xs font-bold text-white">{item.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span><div><p className="text-sm font-semibold text-slate-900">{item.name}{!item.active && <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Disabled</span>}</p><p className="mt-0.5 text-xs text-slate-500">{item.email}</p></div></div>{admin && item.id !== user.id ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto"><select className="field w-auto min-w-32 py-2 text-xs" aria-label={`Role for ${item.name}`} value={item.role} onChange={(event) => updateUser.mutate({ id: item.id, data: { role: event.target.value } })}><option value="MANAGER">Manager</option><option value="MEMBER">Team member</option><option value="ADMIN">Admin</option></select>{item.role === 'MEMBER' && <select className="field w-auto min-w-32 py-2 text-xs" aria-label={`Manager for ${item.name}`} value={item.managerId ?? ''} onChange={(event) => updateUser.mutate({ id: item.id, data: { managerId: event.target.value || null } })}><option value="">No manager</option>{(managerOptions.data ?? userItems).filter((candidate) => candidate.role === 'MANAGER' && candidate.active).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select>}<button className="quiet px-2 py-1 text-xs" onClick={() => setResetUser(item)}>Reset password</button><button className="quiet px-2 py-1 text-xs" onClick={() => updateUser.mutate({ id: item.id, data: { active: !item.active } })}>{item.active ? 'Disable' : 'Enable'}</button></div> : <span className="status-chip bg-blue-50 text-blue-700">{item.role === 'MEMBER' ? 'Team member' : item.role[0] + item.role.slice(1).toLowerCase()}</span>}</div>)}</div> : <p className="p-5 text-sm text-[#6b7280]">No users found.</p>}
+          {users.isLoading ? <p className="p-5 text-sm text-[#6b7280]">Loading users…</p> : users.isError ? <p role="alert" className="p-5 text-sm text-red-700">Could not load users.</p> : userItems.length ? <div className="divide-y divide-slate-100">{userItems.map((item) => <div key={item.id} className="team-row flex flex-col items-start justify-between gap-3 px-5 py-4 sm:flex-row sm:items-center"><div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-xs font-bold text-white">{item.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span><div><p className="text-sm font-semibold text-slate-900">{item.name}{!item.active && <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Disabled</span>}</p><p className="mt-0.5 text-xs text-slate-500">{item.email}</p></div></div><span className="status-chip bg-blue-50 text-blue-700">{item.role === 'MEMBER' ? 'Team member' : item.role[0] + item.role.slice(1).toLowerCase()}</span></div>)}</div> : <p className="p-5 text-sm text-[#6b7280]">No users found.</p>}
           {users.data && <div className="flex items-center justify-between border-t border-[#e5e7eb] px-5 py-3.5 text-xs text-[#6b7280]"><span>Page {userPage} · {userItems.length} shown</span><div className="flex gap-2"><button className="quiet px-3 py-1.5" disabled={userPage <= 1 || users.isFetching} onClick={() => setUserPage((page) => page - 1)}>Previous</button><button className="quiet px-3 py-1.5" disabled={userPage * 50 >= totalUsers || users.isFetching} onClick={() => setUserPage((page) => page + 1)}>Next</button></div></div>}
-          {admin && <div className="flex flex-wrap gap-2 border-t border-[#e5e7eb] px-5 py-4"><button className="quiet text-sm" onClick={() => setShowSourceForm(true)}>Manage lead sources</button><button className="quiet text-sm" onClick={() => setShowSettingsForm(true)}>Manage settings</button></div>}
         </section>}
         </div>
       </div>
       {showLeadForm && <Modal title="Create a lead" onClose={() => setShowLeadForm(false)}><LeadForm currentUser={user} users={managerOptions.data ?? userItems} sources={sources.data ?? []} onDone={() => { setShowLeadForm(false); setLeadPage(1); void refreshLeads(); }} onError={setNotice} /></Modal>}
-      {showUserForm && <Modal title="Create a team account" onClose={() => setShowUserForm(false)}><UserForm users={managerOptions.data ?? userItems} onDone={() => { setShowUserForm(false); void refreshUsers(); }} onError={setNotice} /></Modal>}
       {showPasswordForm && <Modal title="Change password" onClose={() => setShowPasswordForm(false)}><PasswordForm onDone={() => { clearCsrfToken(); setShowPasswordForm(false); router.replace('/'); }} onError={setNotice} /></Modal>}
       {showSourceForm && <Modal title="Manage lead sources" onClose={() => setShowSourceForm(false)}><SourceForm sources={sources.data ?? []} onDone={() => { setShowSourceForm(false); void refreshSources(); }} onError={setNotice} /></Modal>}
-      {showSettingsForm && <Modal title="Manage portal settings" onClose={() => setShowSettingsForm(false)}><SettingsForm settings={settings.data ?? []} onDone={() => { setShowSettingsForm(false); void refreshSettings(); }} onError={setNotice} /></Modal>}
       {actionLead && <Modal title={`${actionLead.action === 'note' ? 'Add note to' : 'Schedule follow-up for'} ${actionLead.name}`} onClose={() => setActionLead(null)}><LeadActionForm lead={actionLead} onDone={() => { const shouldRefresh = actionLead.action === 'follow-up'; setActionLead(null); if (shouldRefresh) void refreshFollowUps(); }} onError={setNotice} /></Modal>}
-      {resetUser && <Modal title={`Reset password for ${resetUser.name}`} onClose={() => setResetUser(null)}><ResetPasswordForm user={resetUser} onDone={() => { setResetUser(null); }} onError={setNotice} /></Modal>}
     </main>
   );
 }
@@ -419,23 +397,6 @@ function LeadForm({ currentUser, users, sources, onDone, onError }: { currentUse
     {sources.length > 0 && <div><label className="label" htmlFor="sourceId">Source</label><select className="field" name="sourceId" id="sourceId"><option value="">Select a source</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>}
     {currentUser.role !== 'MEMBER' && <div><label className="label" htmlFor="assigneeId">Assign to</label><select className="field" name="assigneeId" id="assigneeId" defaultValue={currentUser.role === 'MANAGER' ? currentUser.id : assignees[0]?.id ?? ''} required><option value="" disabled>Select an assignee</option>{assignees.map((item) => <option key={item.id} value={item.id}>{item.id === currentUser.id ? `${item.name} (you)` : item.name}</option>)}</select>{assignees.length === 0 && <p className="mt-1 text-xs text-amber-800">Create an eligible user before adding a lead.</p>}</div>}
     <button className="primary w-full" disabled={currentUser.role !== 'MEMBER' && assignees.length === 0}>Create lead</button>
-  </form>;
-}
-
-function UserForm({ users, onDone, onError }: { users: User[]; onDone: () => void; onError: (message: string) => void }) {
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    try {
-      await mutate('/users', 'POST', { name: form.get('name'), email: form.get('email'), password: form.get('password'), role: form.get('role'), managerId: form.get('managerId') || undefined });
-      onDone();
-    } catch (error) { onError(error instanceof Error ? error.message : 'Could not create user'); }
-  }
-  return <form className="space-y-4" onSubmit={submit}>
-    <Field name="name" label="Full name" required /><Field name="email" label="Email address" type="email" required /><Field name="password" label="Temporary password (12+ characters)" type="password" required />
-    <div><label className="label" htmlFor="role">Role</label><select className="field" id="role" name="role"><option value="MEMBER">Team member</option><option value="MANAGER">Manager</option></select></div>
-    <div><label className="label" htmlFor="managerId">Manager (optional)</label><select className="field" id="managerId" name="managerId"><option value="">No manager</option>{users.filter((item) => item.role === 'MANAGER').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-    <button className="primary w-full">Create account</button>
   </form>;
 }
 
@@ -488,29 +449,6 @@ function LeadActionForm({ lead, onDone, onError }: { lead: { id: string; action:
     {lead.action === 'note' ? <div><label className="label" htmlFor="content">Note</label><textarea className="field min-h-28" id="content" name="content" maxLength={5000} required /></div> : <><div><label className="label" htmlFor="description">Follow-up details</label><textarea className="field min-h-24" id="description" name="description" maxLength={2000} required /></div><Field name="dueAt" label="Due date and time" type="datetime-local" required /></>}
     <button className="primary w-full">{lead.action === 'note' ? 'Add note' : 'Schedule follow-up'}</button>
   </form>;
-}
-
-function SettingsForm({ settings, onDone, onError }: { settings: { key: string; value: string }[]; onDone: () => void; onError: (message: string) => void }) {
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    try { await mutate('/settings', 'POST', { key: form.get('key'), value: form.get('value') }); onDone(); }
-    catch (error) { onError(error instanceof Error ? error.message : 'Could not update setting'); }
-  }
-  return <div className="space-y-5">
-    <form className="space-y-3" onSubmit={submit}><Field name="key" label="New setting key" required /><div><label className="label" htmlFor="value">Value</label><textarea className="field min-h-20" id="value" name="value" maxLength={2000} required /></div><button className="primary w-full">Save setting</button></form>
-    <div className="max-h-64 space-y-3 overflow-y-auto">{settings.map((setting, index) => <form key={setting.key} className="space-y-2 border-t border-[#e5e7eb] pt-3" onSubmit={(event) => { event.preventDefault(); const value = new FormData(event.currentTarget).get('value'); void mutate('/settings', 'POST', { key: setting.key, value }).then(onDone).catch((error: unknown) => onError(error instanceof Error ? error.message : 'Could not update setting')); }}><label className="label" htmlFor={`setting-${index}`}>{setting.key}</label><textarea className="field min-h-16" id={`setting-${index}`} name="value" defaultValue={setting.value} maxLength={2000} required /><button className="quiet text-xs">Update</button></form>)}</div>
-  </div>;
-}
-
-function ResetPasswordForm({ user, onDone, onError }: { user: User; onDone: () => void; onError: (message: string) => void }) {
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const newPassword = new FormData(event.currentTarget).get('newPassword');
-    try { await mutate(`/users/${user.id}/reset-password`, 'POST', { newPassword }); onDone(); }
-    catch (error) { onError(error instanceof Error ? error.message : 'Could not reset password'); }
-  }
-  return <form className="space-y-4" onSubmit={submit}><Field name="newPassword" label="Temporary password (12+ characters, upper/lowercase, number and symbol)" type="password" required /><button className="primary w-full">Reset password</button></form>;
 }
 
 function Field({ name, label, type = 'text', required = false }: { name: string; label: string; type?: string; required?: boolean }) {

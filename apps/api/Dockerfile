@@ -23,7 +23,7 @@ RUN pnpm --filter @nirvaan/api db:generate \
 FROM node:22-bookworm-slim AS runner
 
 ENV NODE_ENV=production
-ENV PORT=4000
+ENV PORT=10000
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -32,7 +32,7 @@ RUN apt-get update \
 COPY --from=build --chown=node:node /out/api/ ./
 
 USER node
-EXPOSE 4000
+EXPOSE 10000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 4000) + '/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 

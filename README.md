@@ -57,6 +57,12 @@ Orbit by Nirvaan Tech is a role-based business workspace built as a pnpm monorep
 - **Manager:** leads assigned to their direct team members; can create and assign leads to those members; can see team users and team follow-ups/analytics. Cannot manage users, change roles, or manage Admin accounts.
 - **Team Member:** only assigned leads; can create leads, update lead data/status, add notes, and schedule follow-ups. Cannot manage users or permissions.
 
+## Workspace pages
+
+The authenticated workspace uses the existing `/dashboard/[role]` route and shared application layout. Dedicated pages are available for the dashboard, lead list and details, lead creation, sales pipeline, follow-ups, calendar, team, reports, and administrator settings. The lead list supports server-backed search, status filtering, pagination, status updates, and current-page CSV export; lead details support notes and scheduled follow-ups. Reports show role-scoped lead and follow-up aggregates returned by the API. Administrators manage accounts, roles, team assignments, activation, and password resets from Settings rather than the dashboard.
+
+The current database and API do not yet define client, project, invoice/payment, notification, or global-search records/endpoints. Revenue, project, and monthly analytics are therefore not displayed as sample data. The existing lead status enum also has six values, so the pipeline only exposes statuses the backend can persist.
+
 The leads table loads 25 records at a time and supports server-side search, status filtering, and sorting. Dashboard queries reuse recent results briefly, and expensive charts are split into a separate frontend chunk.
 
 Performance diagnostics are available without changing business data: the API emits structured `http_response` and `controller_response` timing records, and exposes controller time in the `Server-Timing` header. Prisma logs client-observed database durations in development and flags queries taking at least 100 ms in every environment. The browser console and dashboard's development-only panel show frontend API and controller timings. Analytics uses role-scoped Prisma aggregates; lead search, filtering, sorting, and pagination use Prisma queries. MongoDB relations are represented by string IDs and enforced by Prisma's relation handling rather than PostgreSQL foreign keys.
@@ -78,38 +84,31 @@ There is no public registration. User roles and lead visibility are checked by t
 
 - Provision the database and app environment variables through the deployment platform's secret manager. Keep `.env` files out of images, frontend build contexts, logs, artifacts, and Git.
 - Use a unique random `SESSION_SECRET` with at least 32 characters. Use HTTPS in production; production session and CSRF cookies are Secure and HttpOnly where applicable.
-- The Vercel frontend proxies `/api/*` to the Northflank API. This keeps browser requests same-origin so the `SameSite=Lax` session and CSRF cookies work without exposing the API host in client-side configuration.
+- The Vercel frontend proxies `/api/*` to the Render API. This keeps browser requests same-origin so the `SameSite=Lax` session and CSRF cookies work without exposing the API host in client-side configuration.
 - Run `pnpm db:generate` during build and `pnpm db:push` when provisioning the Atlas schema. Run `pnpm db:seed` explicitly only during initial provisioning (or for a new environment), not on every restart.
 - Use individual, unique, administrator-selected passwords for all initial accounts. Transfer them through a secure channel, rotate them after provisioning, and never write them to logs or source control. The seed checks for configured password uniqueness but does not print credentials.
 - Keep database backups and apply the hosting provider's least-privilege access controls. Review `AuditLog` for administrative and authentication events.
 
-## Deploying to Vercel and Northflank
+## Deploying to Vercel and Render
 
-The web app is deployed on Vercel and the API as a Docker service on Northflank. Use a MongoDB Atlas replica-set database reachable from Northflank. Prefer a custom domain on the Vercel frontend; the API does not need a browser-facing public URL because Vercel proxies its requests.
-Create the Vercel project/domain first (or choose its expected `*.vercel.app` origin) so it can be set as the API's allowed origin.
+The web app is deployed on Vercel and the API as a Docker web service on Render. Use a MongoDB Atlas replica-set database reachable from Render. Render provides the API with a public HTTPS URL for Vercel's server-side `/api` proxy; browser requests still use only the Vercel domain.
 
-### 1. Deploy the API to Northflank
+### 1. Deploy the API to Render
 
-Create a Northflank service from this repository using the Dockerfile build option:
+Create a Blueprint from this repository, or use **New > Web Service** and configure:
 
-- Build context: repository root.
+- Runtime: Docker.
+- Branch: `main`.
+- Docker build context: repository root.
 - Dockerfile path: `apps/api/Dockerfile`.
-- Container port: `4000` (or use the `PORT` assigned by Northflank).
-- Health check: HTTP `GET /api/ready`; the endpoint returns healthy only when MongoDB responds. The container's built-in liveness check uses `/api/health`.
+- Health check path: `/api/ready`.
+- Port: `10000` (Render supplies `PORT`; the container listens on it).
 
-Set these service variables in Northflank (keep secrets in its secret manager):
+The root [render.yaml](./render.yaml) Blueprint already defines the API service, health check, and runtime environment variables. Render will prompt for `APP_ORIGIN` and `MONGODB_URI`; provide them securely in the dashboard. It generates `SESSION_SECRET` for the service. Set `APP_ORIGIN` to your exact Vercel production origin, for example `https://your-project.vercel.app`, with no path or trailing slash.
 
-| Variable | Value |
-| --- | --- |
-| `NODE_ENV` | `production` |
-| `APP_ORIGIN` | Exact public Vercel frontend origin, e.g. `https://orbit.example.com` (no path or trailing slash). |
-| `APP_ORIGINS` | Optional comma-separated list of additional exact HTTPS frontend origins. |
-| `MONGODB_URI` | Private Atlas connection string for the production database. |
-| `SESSION_SECRET` | Unique random secret, at least 32 characters. |
-| `TRUST_PROXY_HOPS` | Exact number of trusted proxies in Northflank's request chain; verify the platform's forwarded headers. |
-| `PORT` | Omit if Northflank supplies it; otherwise set to the configured container port. |
+The Blueprint uses Render's Free plan to make initial deployment straightforward. Free web services spin down when idle and can take about a minute to wake; select a paid plan in Render for an always-on production service.
 
-Allow Northflank to connect to the Atlas cluster using the narrowest available network access rules. Do not copy the development `.env` or its database into production.
+Render's proxy is trusted for secure production requests with `TRUST_PROXY_HOPS=1`. Keep `MONGODB_URI` private and allow the Render service to connect to the Atlas cluster. Do not copy the development `.env` or its database into production.
 
 ### 2. Provision production data once
 
@@ -122,7 +121,7 @@ pnpm db:push
 pnpm db:seed
 ```
 
-Provide `MONGODB_URI` and the initial account values securely to that process. Do not put initial account passwords in the long-running Northflank service unless needed for a controlled re-seed. Keep `db:push` and `db:seed` out of the API startup command.
+Provide `MONGODB_URI` and the initial account values securely to that process. Do not put initial account passwords in the long-running Render service unless needed for a controlled re-seed. Keep `db:push` and `db:seed` out of the API startup command.
 
 ### 3. Deploy the frontend to Vercel
 
@@ -130,13 +129,13 @@ Import the same repository into Vercel and configure:
 
 - Root Directory: `apps/web` (leave “Include files outside the Root Directory” enabled so pnpm can use the workspace lockfile).
 - Framework preset: Next.js.
-- `API_PROXY_TARGET`: the HTTPS **origin only** of the Northflank service, e.g. `https://orbit-api.example.com`. Do not include `/api`, a path, credentials, query, or trailing slash.
+- `API_PROXY_TARGET`: the HTTPS **origin only** of the Render service, e.g. `https://orbit-api.onrender.com`. Do not include `/api`, a path, credentials, query, or trailing slash.
 
-Set `API_PROXY_TARGET` for each Vercel environment you deploy. The app builds fail-fast in production if it is missing or invalid. Do not set `NEXT_PUBLIC_API_URL`: production browser requests use the same-origin `/api` route, and Next.js rewrites it to Northflank.
+Set `API_PROXY_TARGET` for each Vercel environment you deploy. The app builds fail-fast in production if it is missing or invalid. Do not set `NEXT_PUBLIC_API_URL`: production browser requests use the same-origin `/api` route, and Next.js rewrites it to Render.
 
-Set `APP_ORIGIN` in Northflank to the exact Vercel production/custom-domain origin. Add any fixed preview origin to `APP_ORIGINS`; do not allow arbitrary origins. Configure DNS and HTTPS for custom domains on their respective platforms.
+Set `APP_ORIGIN` in Render to the exact Vercel production/custom-domain origin. Add any fixed preview origin to `APP_ORIGINS`; do not allow arbitrary origins. Configure DNS and HTTPS for custom domains on their respective platforms.
 
-After deployment, verify `https://<your-vercel-domain>/api/ready` returns `{"status":"ok"}` and confirm login, refresh, and logout work. The readiness endpoint checks MongoDB connectivity. Review Northflank logs and Vercel build logs if either deployment fails.
+After deployment, verify `https://<your-vercel-domain>/api/ready` returns `{"status":"ok"}` and confirm login, refresh, and logout work. The readiness endpoint checks MongoDB connectivity. Review Render logs and Vercel build logs if either deployment fails.
 
 ## Useful commands
 
