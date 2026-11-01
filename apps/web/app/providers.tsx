@@ -41,6 +41,10 @@ export function Providers({ children }: Readonly<{ children: React.ReactNode }>)
   }));
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
+    const mark = isDark ? '/orbit-mark.png' : '/black-orbit-mark.png';
+    document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"], link[rel="apple-touch-icon"]').forEach((icon) => {
+      icon.href = mark;
+    });
   }, [isDark]);
   const toggleTheme = () => {
     const next = !isDark;

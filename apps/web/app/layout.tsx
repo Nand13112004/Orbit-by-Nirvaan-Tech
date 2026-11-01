@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     template: '%s | Orbit',
   },
   description: 'Everything connected. Business in motion.',
-  icons: { icon: '/orbit-mark.webp', apple: '/orbit-mark.webp' },
+  icons: { icon: '/black-orbit-mark.png', apple: '/black-orbit-mark.png' },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

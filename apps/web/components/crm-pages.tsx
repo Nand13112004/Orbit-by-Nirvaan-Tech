@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownUp, ArrowLeft, ArrowUpRight, BarChart3, CalendarClock, Check, CircleAlert, Download, Plus, Search, Users } from 'lucide-react';
-import { api, apiWithMetadata, mutate } from '@/lib/api';
+import { api, apiWithMetadata, dashboardForRole, mutate } from '@/lib/api';
 
 type Lead = {
   id: string;
@@ -119,10 +119,12 @@ export function NewLeadPage() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: User }>('/auth/me') });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     const form = new FormData(event.currentTarget);
@@ -143,6 +145,7 @@ export function NewLeadPage() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not create lead');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -169,8 +172,12 @@ export function NewLeadPage() {
 
 export function LeadDetailsPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const deletingRef = useRef(false);
+  const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: User }>('/auth/me') });
   const leadQuery = useQuery({
     queryKey: ['lead', params.id],
     queryFn: () => api<Lead & { notes: { id: string; content: string; createdAt: string; author: { name: string } }[]; followUps: FollowUp[] }>(`/leads/${params.id}`),
@@ -204,6 +211,26 @@ export function LeadDetailsPage() {
     }
   }
 
+  async function deleteLead() {
+    if (deletingRef.current || !leadQuery.data) return;
+    if (!window.confirm(`Delete "${leadQuery.data.name}"? This will permanently remove this lead and its notes and follow-ups.`)) return;
+    deletingRef.current = true;
+    setDeleting(true);
+    setError('');
+    try {
+      await mutate(`/leads/${params.id}`, 'DELETE');
+      queryClient.removeQueries({ queryKey: ['lead', params.id] });
+      void queryClient.invalidateQueries({ queryKey: ['leads'] });
+      void queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      void queryClient.invalidateQueries({ queryKey: ['follow-ups'] });
+      router.replace(`${dashboardForRole(me.data?.user.role ?? 'ADMIN')}/leads`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not delete this lead');
+      deletingRef.current = false;
+      setDeleting(false);
+    }
+  }
+
   if (leadQuery.isLoading) return <LoadingPanel label="Loading lead" />;
   if (leadQuery.isError) return <ErrorPanel message={leadQuery.error.message} />;
   const lead = leadQuery.data;
@@ -231,6 +258,10 @@ export function LeadDetailsPage() {
         {lead.notes.length ? <div className="crm-note-list">{lead.notes.map((note) => <article key={note.id}><p>{note.content}</p><small>{note.author?.name ?? 'Workspace member'} · {formatDate(note.createdAt)}</small></article>)}</div> : <p className="crm-muted">No activity notes yet.</p>}
       </section>
     </div>
+    {me.data?.user.role === 'ADMIN' && <section className="panel crm-delete-lead">
+      <div><h2>Delete this lead</h2><p>This permanently deletes the lead, its notes, and its follow-ups.</p></div>
+      <button type="button" className="crm-delete-button" disabled={deleting} onClick={() => void deleteLead()}>{deleting ? 'Deleting…' : 'Delete lead'}</button>
+    </section>}
   </section>;
 }
 

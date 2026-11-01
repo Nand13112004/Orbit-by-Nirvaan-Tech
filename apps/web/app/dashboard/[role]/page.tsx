@@ -1,26 +1,18 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
-import type { ColumnDef, SortingState } from '@tanstack/react-table';
 import * as Dialog from '@radix-ui/react-dialog';
 import dynamic from 'next/dynamic';
-import { BarChart3, CalendarClock, ChevronsRight, CircleUserRound, KeyRound, LayoutDashboard, ListChecks, LogOut, Moon, Plus, Search, Settings2, Sun, Users } from 'lucide-react';
+import { BarChart3, CalendarClock, ChevronsRight, KeyRound, LayoutDashboard, ListChecks, LogOut, Moon, Plus, Search, Settings2, Sun, Users } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Brand } from '@/components/brand';
-import { api, apiWithMetadata, ApiPerformanceMetric, clearCsrfToken, dashboardForRole, mutate } from '@/lib/api';
+import { api, apiWithMetadata, clearCsrfToken, dashboardForRole, mutate } from '@/lib/api';
 import { useTheme } from '@/app/providers';
 
 type User = { id: string; name: string; email: string; role: 'ADMIN' | 'MANAGER' | 'MEMBER'; active: boolean; managerId?: string | null };
-type Lead = {
-  id: string; name: string; email?: string | null; company?: string | null;
-  status: string; updatedAt: string; assignee: { id: string; name: string }; assigneeId: string;
-};
-type LeadPage = { items: Lead[]; total: number; page: number; pageSize: number; totalPages: number };
 type Analytics = { totalLeads: number; byStatus: { status: string; _count: { _all: number } }[]; openFollowUps: number };
 type FollowUp = { id: string; leadId: string; description: string; dueAt: string; completed: boolean; lead: { id: string; name: string } };
-const statuses = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const PipelineChart = dynamic(
   () => import('@/components/pipeline-chart').then((module) => module.PipelineChart),
   { ssr: false, loading: () => <div className="mt-4 h-56 animate-pulse rounded-lg bg-gray-50" aria-label="Loading chart" /> },
@@ -31,27 +23,17 @@ export default function DashboardPage() {
   const params = useParams<{ role: string }>();
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState('');
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const [leadPage, setLeadPage] = useState(1);
   const [leadSearch, setLeadSearch] = useState('');
-  const [leadStatus, setLeadStatus] = useState('');
-  const [deferredSearch, setDeferredSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
   const [deferredUserSearch, setDeferredUserSearch] = useState('');
   const [userPage, setUserPage] = useState(1);
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [showSourceForm, setShowSourceForm] = useState(false);
-  const [actionLead, setActionLead] = useState<{ id: string; name: string; action: 'note' | 'follow-up' } | null>(null);
   const [includeCompleted, setIncludeCompleted] = useState(false);
-  const [apiMetrics, setApiMetrics] = useState<ApiPerformanceMetric[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { isDark, toggleTheme } = useTheme();
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDeferredSearch(leadSearch.trim()), 300);
-    return () => window.clearTimeout(timeout);
-  }, [leadSearch]);
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setDeferredUserSearch(userSearch.trim());
@@ -60,37 +42,12 @@ export default function DashboardPage() {
     return () => window.clearTimeout(timeout);
   }, [userSearch]);
 
-  useEffect(() => {
-    if (process.env.NODE_ENV !== 'development') return;
-    const onApiPerformance = (event: Event) => {
-      const metric = (event as CustomEvent<ApiPerformanceMetric>).detail;
-      setApiMetrics((metrics) => [...metrics.slice(-7), metric]);
-    };
-    window.addEventListener('api:performance', onApiPerformance);
-    return () => window.removeEventListener('api:performance', onApiPerformance);
-  }, []);
-
   const me = useQuery({
     queryKey: ['me'],
     queryFn: () => api<{ user: User }>('/auth/me'),
     retry: false,
   });
   const user = me.data?.user;
-  const sortBy = sorting[0]?.id === 'name' || sorting[0]?.id === 'status' ? sorting[0].id : 'updatedAt';
-  const sortOrder = sorting[0]?.desc ? 'desc' : sorting.length ? 'asc' : 'desc';
-  const leadParams = new URLSearchParams({
-    page: String(leadPage),
-    sort: sortBy,
-    order: sortOrder,
-    ...(deferredSearch ? { search: deferredSearch } : {}),
-    ...(leadStatus ? { status: leadStatus } : {}),
-  });
-  const leads = useQuery({
-    queryKey: ['leads', leadPage, deferredSearch, leadStatus, sortBy, sortOrder],
-    queryFn: () => api<LeadPage>(`/leads?${leadParams.toString()}`),
-    enabled: !!user,
-    placeholderData: keepPreviousData,
-  });
   const analytics = useQuery({ queryKey: ['analytics'], queryFn: () => api<Analytics>('/analytics'), enabled: !!user });
   const followUps = useQuery({
     queryKey: ['follow-ups', includeCompleted],
@@ -122,12 +79,6 @@ export default function DashboardPage() {
     if (user && dashboardForRole(user.role) !== `/dashboard/${params.role}`) router.replace(dashboardForRole(user.role));
   }, [me.isError, user, params.role, router]);
 
-  useEffect(() => {
-    if (leads.data && (leads.data.totalPages === 0 ? leadPage !== 1 : leadPage > leads.data.totalPages)) {
-      setLeadPage(Math.max(1, leads.data.totalPages));
-    }
-  }, [leadPage, leads.data]);
-
   const refreshLeads = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['leads'] }),
     queryClient.invalidateQueries({ queryKey: ['analytics'] }),
@@ -142,20 +93,10 @@ export default function DashboardPage() {
     mutationFn: async () => mutate('/auth/logout', 'POST'),
     onSuccess: () => { clearCsrfToken(); queryClient.clear(); router.replace('/'); },
   });
-  const updateLead = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: unknown }) => mutate(`/leads/${id}`, 'PATCH', data),
-    onSuccess: refreshLeads,
-    onError: (error) => setNotice(error.message),
-  });
   const deleteFollowUp = useMutation({
     mutationFn: ({ leadId, id }: { leadId: string; id: string }) =>
       mutate(`/leads/${leadId}/follow-ups/${id}`, 'DELETE'),
     onSuccess: refreshFollowUps,
-    onError: (error) => setNotice(error.message),
-  });
-  const deleteLead = useMutation({
-    mutationFn: (id: string) => mutate(`/leads/${id}`, 'DELETE'),
-    onSuccess: refreshLeads,
     onError: (error) => setNotice(error.message),
   });
   const updateFollowUp = useMutation({
@@ -166,44 +107,6 @@ export default function DashboardPage() {
   });
   const admin = user?.role === 'ADMIN';
   const manager = user?.role === 'MANAGER';
-  const updateLeadMutation = updateLead.mutate;
-  const deleteLeadMutation = deleteLead.mutate;
-  const columns = useMemo<ColumnDef<Lead>[]>(() => [
-    {
-      accessorKey: 'name',
-      header: ({ column }) => <button onClick={column.getToggleSortingHandler()}>Lead {column.getIsSorted() === 'asc' ? '↑' : column.getIsSorted() === 'desc' ? '↓' : ''}</button>,
-      cell: ({ row }) => <><p className="font-medium text-[#111827]">{row.original.name}</p><p className="mt-1 text-xs text-[#6b7280]">{row.original.company ?? row.original.email ?? 'No company details'}</p></>,
-    },
-    {
-      accessorKey: 'status',
-      header: ({ column }) => <button onClick={column.getToggleSortingHandler()}>Status {column.getIsSorted() === 'asc' ? '↑' : column.getIsSorted() === 'desc' ? '↓' : ''}</button>,
-      cell: ({ row }) => <select aria-label={`Status for ${row.original.name}`} className="field min-w-32 py-2 text-xs" value={row.original.status} onChange={(event) => updateLeadMutation({ id: row.original.id, data: { status: event.target.value } })}>{statuses.map((status) => <option key={status} value={status}>{status.replace('_', ' ')}</option>)}</select>,
-    },
-    {
-      id: 'assignee',
-      accessorFn: (lead) => lead.assignee?.name ?? 'Unassigned',
-      header: 'Owner',
-      cell: ({ row, getValue }) => (admin || manager)
-        ? <select aria-label={`Assignee for ${row.original.name}`} className="field min-w-32 py-2 text-xs" value={row.original.assigneeId} onChange={(event) => updateLeadMutation({ id: row.original.id, data: { assigneeId: event.target.value } })}>{(managerOptions.data ?? userItems).filter((item) => item.active && item.role !== 'ADMIN' && (admin || item.id === user?.id || item.managerId === user?.id)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-        : getValue(),
-    },
-    {
-      id: 'actions',
-      header: 'Actions',
-      cell: ({ row }) => <div className="flex flex-wrap gap-1"><button className="quiet px-2 py-1 text-xs" onClick={() => setActionLead({ id: row.original.id, name: row.original.name, action: 'note' })}>Note</button><button className="quiet px-2 py-1 text-xs" onClick={() => setActionLead({ id: row.original.id, name: row.original.name, action: 'follow-up' })}>Follow-up</button>{admin && <button className="quiet px-2 py-1 text-xs text-red-700" onClick={() => { if (window.confirm(`Delete ${row.original.name}?`)) deleteLeadMutation(row.original.id); }}>Delete</button>}</div>,
-    },
-  ], [admin, manager, user?.id, managerOptions.data, userItems, updateLeadMutation, deleteLeadMutation]);
-  // TanStack Table's instance is intentionally mutable and cannot be React-Compiler memoized.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
-    data: leads.data?.items ?? [],
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    manualSorting: true,
-  });
-
   if (me.isLoading || !user) return (
     <main className="grid min-h-screen place-items-center p-5">
       <div className="w-full max-w-5xl space-y-5" role="status" aria-label="Loading your workspace">
@@ -241,9 +144,9 @@ export default function DashboardPage() {
         {sidebarOpen && <p className="mb-3 mt-7 px-3 text-[10px] font-bold uppercase tracking-[.15em] text-slate-400">Workspace</p>}
         <nav className="space-y-1" aria-label="Main navigation">
           <a className={`nav-item nav-item-active ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Overview'} href="#overview"><span className="flex items-center gap-3"><LayoutDashboard size={17} />{sidebarOpen && 'Overview'}</span>{sidebarOpen && <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />}</a>
-          <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Leads'} href="#leads"><span className="flex items-center gap-3"><ListChecks size={17} />{sidebarOpen && 'Leads'}</span>{sidebarOpen && <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600">{leads.data?.total ?? '—'}</span>}</a>
+          <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Leads'} href={`${dashboardForRole(user.role)}/leads`}><span className="flex items-center gap-3"><ListChecks size={17} />{sidebarOpen && 'Leads'}</span></a>
           <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Follow-ups'} href="#follow-ups"><span className="flex items-center gap-3"><CalendarClock size={17} />{sidebarOpen && 'Follow-ups'}</span>{sidebarOpen && <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-[10px] text-amber-700">{analytics.data?.openFollowUps ?? '—'}</span>}</a>
-          {(admin || manager) && <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : admin ? 'User management' : 'Your team'} href="#team"><span className="flex items-center gap-3"><Users size={17} />{sidebarOpen && (admin ? 'User management' : 'Your team')}</span>{sidebarOpen && admin && <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600">{users.data ? totalUsers : '—'}</span>}</a>}
+          {(admin || manager) && <a className={`nav-item ${sidebarOpen ? 'justify-between' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Your team'} href="#team"><span className="flex items-center gap-3"><Users size={17} />{sidebarOpen && 'Your team'}</span></a>}
           {admin && <button className={`nav-item w-full ${sidebarOpen ? '' : 'justify-center'}`} title={sidebarOpen ? undefined : 'Settings'} onClick={() => router.push(`${dashboardForRole(user.role)}/settings`)}><Settings2 size={17} />{sidebarOpen && 'Settings'}</button>}
         </nav>
         <div className="mt-auto border-t border-slate-200 pt-5">
@@ -262,11 +165,11 @@ export default function DashboardPage() {
             <div className="hidden items-center gap-2 text-xs font-medium text-slate-500 lg:flex"><span>Workspace</span><span className="text-slate-300">/</span><span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700">{title}</span></div>
             <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-4">
               <button type="button" className="quiet grid size-9 shrink-0 place-items-center p-0" aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'} title={isDark ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{isDark ? <Sun size={16} /> : <Moon size={16} />}</button>
-              <label className="relative hidden min-w-0 md:block">
+              <form className="relative hidden min-w-0 md:block" onSubmit={(event) => { event.preventDefault(); router.push(`${dashboardForRole(user.role)}/leads${leadSearch.trim() ? `?search=${encodeURIComponent(leadSearch.trim())}` : ''}`); }}>
                 <span className="sr-only">Search leads</span>
                 <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input className="field h-9 min-h-9 w-56 py-1.5 pl-9 pr-3 lg:w-64" placeholder="Search leads..." value={leadSearch} onChange={(event) => { setLeadSearch(event.target.value); setLeadPage(1); }} />
-              </label>
+                <input className="field h-9 min-h-9 w-56 py-1.5 pl-9 pr-3 lg:w-64" placeholder="Search leads..." value={leadSearch} onChange={(event) => setLeadSearch(event.target.value)} />
+              </form>
               <span className="hidden h-5 w-px bg-slate-200 sm:block" />
               <span className="hidden text-xs font-semibold text-slate-700 sm:block">{user.name}</span>
               <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-[11px] font-bold text-white ring-2 ring-blue-100">{user.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>
@@ -275,7 +178,7 @@ export default function DashboardPage() {
           </div>
           <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:hidden" aria-label="Mobile navigation">
             <a className="nav-item nav-item-active min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href="#overview"><LayoutDashboard size={15} /> Overview</a>
-            <a className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href="#leads"><ListChecks size={15} /> Leads</a>
+            <a className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href={`${dashboardForRole(user.role)}/leads`}><ListChecks size={15} /> Leads</a>
             <a className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href="#follow-ups"><CalendarClock size={15} /> Follow-ups</a>
             {(admin || manager) && <a className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" href="#team"><Users size={15} /> Team</a>}
             {admin && <button className="nav-item min-h-9 shrink-0 whitespace-nowrap px-3 py-2 text-xs" onClick={() => router.push(`${dashboardForRole(user.role)}/settings`)}><Settings2 size={15} /> Settings</button>}
@@ -292,22 +195,6 @@ export default function DashboardPage() {
         </div>
         {notice && <p role="status" className="mb-5 rounded-lg border border-amber-100 bg-amber-50 p-3 text-sm text-[#92400e]">{notice}</p>}
 
-        {/* {process.env.NODE_ENV === 'development' && <section className="panel mb-5 p-4" aria-label="Frontend API performance">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">API response timings · development</h2>
-            <span className="font-mono text-xs text-slate-500">{apiMetrics.length} recent request{apiMetrics.length === 1 ? '' : 's'}</span>
-          </div>
-          {apiMetrics.length ? <ul className="mt-3 flex flex-wrap gap-2">
-            {[...apiMetrics].reverse().map((metric, index) => (
-              <li key={`${metric.path}-${index}`} className="rounded-lg bg-slate-50 px-2.5 py-1.5 font-mono text-[11px] text-slate-600">
-                {metric.method} {metric.path} · {metric.durationMs} ms
-                {metric.controllerDurationMs === undefined ? '' : ` · handler ${metric.controllerDurationMs} ms`}
-                {' · '}{metric.status || 'network error'}
-              </li>
-            ))}
-          </ul> : <p className="mt-2 text-xs text-slate-500">Waiting for API requests…</p>}
-        </section>} */}
-
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace metrics">
           <Metric icon={<Users size={18} />} label="Total leads" value={analytics.data?.totalLeads ?? '—'} loading={analytics.isLoading} />
           <Metric icon={<CalendarClock size={18} />} label="Open follow-ups" value={analytics.data?.openFollowUps ?? '—'} loading={analytics.isLoading} />
@@ -320,30 +207,12 @@ export default function DashboardPage() {
           {analytics.isError ? <p role="alert" className="mt-4 text-sm text-red-700">Could not load pipeline analytics.</p> : analytics.data ? <PipelineChart data={analytics.data.byStatus} /> : <div className="mt-4 h-56 animate-pulse rounded-lg bg-gray-50" aria-label="Loading chart" />}
         </section>
 
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(300px,.9fr)]">
-          <section id="leads" className="panel min-w-0 overflow-hidden scroll-mt-24">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e5e7eb] px-5 py-4 sm:px-6"><div><h2 className="font-semibold text-[#111827]">Leads</h2><p className="mt-1 text-xs text-[#6b7280]">Manage customer relationships and ownership.</p></div><span className="text-xs text-[#6b7280]">{leads.data?.total ?? 0} total</span></div>
-            <div className="flex flex-col gap-3 border-b border-[#e5e7eb] px-5 py-4 sm:flex-row sm:items-center sm:px-6">
-              <label className="relative min-w-0 flex-1"><span className="sr-only">Search leads</span><Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#9ca3af]" /><input className="field pl-9" placeholder="Search leads…" value={leadSearch} onChange={(event) => { setLeadSearch(event.target.value); setLeadPage(1); }} /></label>
-              <label><span className="sr-only">Filter by status</span><select className="field min-w-40" value={leadStatus} onChange={(event) => { setLeadStatus(event.target.value); setLeadPage(1); }}><option value="">All statuses</option>{statuses.map((status) => <option key={status} value={status}>{status.replace('_', ' ')}</option>)}</select></label>
-            </div>
-            {leads.isLoading ? <div className="space-y-4 p-6" role="status" aria-label="Loading leads">{Array.from({ length: 5 }, (_, index) => <div key={index} className="flex items-center gap-4"><Skeleton className="h-10 w-10 rounded-full" /><div className="flex-1 space-y-2"><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-1/2" /></div><Skeleton className="h-8 w-24" /></div>)}</div> : leads.isError ? <p role="alert" className="p-6 text-sm text-red-700">Could not load leads. Please try again.</p> : leads.data?.items.length ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="table-head">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th key={header.id} className="px-5 py-3.5 font-semibold">{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}</th>)}</tr>)}</thead>
-                  <tbody>{table.getRowModel().rows.map((row) => <tr key={row.id} className="table-row border-t border-[#f0f1f3]">{row.getVisibleCells().map((cell) => <td key={cell.id} className="px-5 py-4">{cell.column.id === 'status' ? <StatusBadge status={row.original.status} onChange={(status) => updateLead.mutate({ id: row.original.id, data: { status } })} /> : flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody>
-                </table>
-              </div>
-            ) : <div className="p-10 text-center"><CircleUserRound className="mx-auto text-[#9ca3af]" size={28} /><p className="mt-3 text-sm font-medium text-[#111827]">{leadSearch || leadStatus ? 'No matching leads' : 'No leads yet'}</p><p className="mt-1 text-xs text-[#6b7280]">{leadSearch || leadStatus ? 'Try adjusting your search or filters.' : 'Create your first lead to get started.'}</p>{!leadSearch && !leadStatus && <button className="primary mt-4" onClick={() => setShowLeadForm(true)}>Create a lead</button>}</div>}
-            {leads.data && leads.data.totalPages > 0 && <div className="flex items-center justify-between border-t border-[#e5e7eb] px-5 py-3.5 text-xs text-[#6b7280]"><span>Page {leads.data.page} of {leads.data.totalPages}</span><div className="flex gap-2"><button className="quiet px-3 py-1.5" disabled={leadPage <= 1 || leads.isFetching} onClick={() => setLeadPage((page) => page - 1)}>Previous</button><button className="quiet px-3 py-1.5" disabled={leadPage >= leads.data.totalPages || leads.isFetching} onClick={() => setLeadPage((page) => page + 1)}>Next</button></div></div>}
-          </section>
-          <section id="follow-ups" className="panel scroll-mt-24">
+        <section id="follow-ups" className="panel scroll-mt-24">
             <div className="flex items-start justify-between gap-3 border-b border-[#e5e7eb] px-5 py-4"><div><h2 className="font-semibold text-[#111827]">Follow-ups</h2><p className="mt-1 text-xs text-[#6b7280]">Your team’s next steps</p></div><button className="quiet px-2 py-1 text-xs" onClick={() => setIncludeCompleted((value) => !value)}>{includeCompleted ? 'Open only' : 'Show completed'}</button></div>
             <div className="divide-y divide-[#edf0ed]">
               {followUps.isLoading ? <div className="space-y-5 p-5" role="status" aria-label="Loading follow-ups">{Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2"><Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-1/3" /></div>)}</div> : followUps.isError ? <p role="alert" className="p-5 text-sm text-red-700">Could not load follow-ups.</p> : followUps.data?.length ? followUps.data.map((item) => <div key={item.id} className="px-5 py-4"><p className="text-sm font-medium text-[#111827]">{item.lead.name}{item.completed && <span className="status-chip ml-2 bg-gray-100 text-gray-600">Completed</span>}</p><p className="mt-1 text-xs text-[#6b7280]">{item.description}</p><p className="mt-2 text-xs font-medium text-blue-700">{new Date(item.dueAt).toLocaleString()}</p><div className="mt-3 flex gap-2">{!item.completed && <button className="quiet px-2 py-1 text-xs" onClick={() => updateFollowUp.mutate({ leadId: item.leadId, id: item.id, data: { completed: true } })}>Mark complete</button>}<button className="quiet px-2 py-1 text-xs text-red-700" onClick={() => deleteFollowUp.mutate({ leadId: item.leadId, id: item.id })}>Delete</button></div></div>) : <p className="p-5 text-sm text-[#6b7280]">No follow-ups scheduled.</p>}
             </div>
-          </section>
-        </div>
+        </section>
 
         {manager && <section id="team" className="panel mt-5 scroll-mt-24">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7eb] px-5 py-4 sm:px-6"><div><div className="flex items-center gap-2"><Users size={17} className="text-blue-600" /><h2 className="font-semibold text-[#111827]">Your team</h2></div><p className="mt-1 text-xs text-[#6b7280]">Team member access is read-only.</p></div><span className="status-chip bg-blue-50 text-blue-700">{totalUsers} accounts</span></div>
@@ -353,10 +222,9 @@ export default function DashboardPage() {
         </section>}
         </div>
       </div>
-      {showLeadForm && <Modal title="Create a lead" onClose={() => setShowLeadForm(false)}><LeadForm currentUser={user} users={managerOptions.data ?? userItems} sources={sources.data ?? []} onDone={() => { setShowLeadForm(false); setLeadPage(1); void refreshLeads(); }} onError={setNotice} /></Modal>}
+      {showLeadForm && <LeadFormModal currentUser={user} users={managerOptions.data ?? userItems} sources={sources.data ?? []} onClose={() => setShowLeadForm(false)} onDone={() => { setShowLeadForm(false); setNotice('Lead created successfully.'); void refreshLeads(); }} onError={setNotice} />}
       {showPasswordForm && <Modal title="Change password" onClose={() => setShowPasswordForm(false)}><PasswordForm onDone={() => { clearCsrfToken(); setShowPasswordForm(false); router.replace('/'); }} onError={setNotice} /></Modal>}
       {showSourceForm && <Modal title="Manage lead sources" onClose={() => setShowSourceForm(false)}><SourceForm sources={sources.data ?? []} onDone={() => { setShowSourceForm(false); void refreshSources(); }} onError={setNotice} /></Modal>}
-      {actionLead && <Modal title={`${actionLead.action === 'note' ? 'Add note to' : 'Schedule follow-up for'} ${actionLead.name}`} onClose={() => setActionLead(null)}><LeadActionForm lead={actionLead} onDone={() => { const shouldRefresh = actionLead.action === 'follow-up'; setActionLead(null); if (shouldRefresh) void refreshFollowUps(); }} onError={setNotice} /></Modal>}
     </main>
   );
 }
@@ -369,18 +237,19 @@ function Skeleton({ className }: { className: string }) {
   return <div aria-hidden="true" className={`animate-pulse rounded-md bg-slate-200 ${className}`} />;
 }
 
-function StatusBadge({ status, onChange }: { status: string; onChange: (status: string) => void }) {
-  const tone = status === 'WON' ? 'bg-green-50 text-green-700' : status === 'LOST' ? 'bg-red-50 text-red-700' : status === 'PROPOSAL' ? 'bg-violet-50 text-violet-700' : status === 'QUALIFIED' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-700';
-  return <select className={`status-chip cursor-pointer border-0 ${tone}`} aria-label={`Lead status: ${status.replace('_', ' ')}`} value={status} onChange={(event) => onChange(event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{item.replace('_', ' ')}</option>)}</select>;
+function Modal({ title, onClose, children, preventClose = false }: { title: string; onClose: () => void; children: React.ReactNode; preventClose?: boolean }) {
+  return <Dialog.Root open onOpenChange={(open) => { if (!open && !preventClose) onClose(); }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-20 bg-[#101114]/45 backdrop-blur-[2px]" /><Dialog.Content className="panel fixed left-1/2 top-1/2 z-20 max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-6 shadow-xl"><div className="mb-5 flex items-center justify-between"><Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title><Dialog.Close asChild><button type="button" className="quiet" disabled={preventClose}>Close</button></Dialog.Close></div>{children}</Dialog.Content></Dialog.Portal></Dialog.Root>;
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-20 bg-[#101114]/45 backdrop-blur-[2px]" /><Dialog.Content className="panel fixed left-1/2 top-1/2 z-20 max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto p-6 shadow-xl"><div className="mb-5 flex items-center justify-between"><Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title><Dialog.Close asChild><button type="button" className="quiet">Close</button></Dialog.Close></div>{children}</Dialog.Content></Dialog.Portal></Dialog.Root>;
-}
+function LeadFormModal({ currentUser, users, sources, onClose, onDone, onError }: { currentUser: User; users: User[]; sources: { id: string; name: string }[]; onClose: () => void; onDone: () => void; onError: (message: string) => void }) {
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
-function LeadForm({ currentUser, users, sources, onDone, onError }: { currentUser: User; users: User[]; sources: { id: string; name: string }[]; onDone: () => void; onError: (message: string) => void }) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
     const form = new FormData(event.currentTarget);
     try {
       await mutate('/leads', 'POST', {
@@ -389,15 +258,22 @@ function LeadForm({ currentUser, users, sources, onDone, onError }: { currentUse
         assigneeId: form.get('assigneeId') || currentUser.id,
       });
       onDone();
-    } catch (error) { onError(error instanceof Error ? error.message : 'Could not create lead'); }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Could not create lead');
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   }
   const assignees = currentUser.role === 'ADMIN' ? users.filter((item) => item.active && item.role !== 'ADMIN') : currentUser.role === 'MANAGER' ? users.filter((item) => item.active && (item.id === currentUser.id || item.managerId === currentUser.id)) : [];
-  return <form className="space-y-4" onSubmit={submit}>
-    <Field name="name" label="Lead name" required /><Field name="email" label="Email" type="email" /><Field name="company" label="Company" /><Field name="phone" label="Phone" />
-    {sources.length > 0 && <div><label className="label" htmlFor="sourceId">Source</label><select className="field" name="sourceId" id="sourceId"><option value="">Select a source</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>}
-    {currentUser.role !== 'MEMBER' && <div><label className="label" htmlFor="assigneeId">Assign to</label><select className="field" name="assigneeId" id="assigneeId" defaultValue={currentUser.role === 'MANAGER' ? currentUser.id : assignees[0]?.id ?? ''} required><option value="" disabled>Select an assignee</option>{assignees.map((item) => <option key={item.id} value={item.id}>{item.id === currentUser.id ? `${item.name} (you)` : item.name}</option>)}</select>{assignees.length === 0 && <p className="mt-1 text-xs text-amber-800">Create an eligible user before adding a lead.</p>}</div>}
-    <button className="primary w-full" disabled={currentUser.role !== 'MEMBER' && assignees.length === 0}>Create lead</button>
-  </form>;
+  return <Modal title="Create a lead" onClose={onClose} preventClose={submitting}>
+    <form className="space-y-4" onSubmit={submit} aria-busy={submitting}>
+      <Field name="name" label="Lead name" required /><Field name="email" label="Email" type="email" /><Field name="company" label="Company" /><Field name="phone" label="Phone" />
+      {sources.length > 0 && <div><label className="label" htmlFor="sourceId">Source</label><select className="field" name="sourceId" id="sourceId"><option value="">Select a source</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>}
+      {currentUser.role !== 'MEMBER' && <div><label className="label" htmlFor="assigneeId">Assign to</label><select className="field" name="assigneeId" id="assigneeId" defaultValue={currentUser.role === 'MANAGER' ? currentUser.id : assignees[0]?.id ?? ''} required><option value="" disabled>Select an assignee</option>{assignees.map((item) => <option key={item.id} value={item.id}>{item.id === currentUser.id ? `${item.name} (you)` : item.name}</option>)}</select>{assignees.length === 0 && <p className="mt-1 text-xs text-amber-800">Create an eligible user before adding a lead.</p>}</div>}
+      <button className="primary w-full" disabled={submitting || (currentUser.role !== 'MEMBER' && assignees.length === 0)}>{submitting ? 'Creating lead…' : 'Create lead'}</button>
+      {submitting && <p className="text-center text-xs text-slate-500" role="status">Saving your lead. Please wait…</p>}
+    </form>
+  </Modal>;
 }
 
 function PasswordForm({ onDone, onError }: { onDone: () => void; onError: (message: string) => void }) {
@@ -432,23 +308,6 @@ function SourceForm({ sources, onDone, onError }: { sources: { id: string; name:
     <form className="space-y-3" onSubmit={submit}><Field name="name" label="New source" required /><button className="primary w-full">Add source</button></form>
     <div className="max-h-64 space-y-2 overflow-y-auto">{sources.map((source) => <form key={source.id} className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); update(source.id, String(new FormData(event.currentTarget).get('name'))); }}><input className="field" aria-label={`Source name ${source.name}`} name="name" defaultValue={source.name} required /><button className="quiet text-xs">Save</button><button type="button" className="quiet text-xs text-red-700" onClick={() => remove(source.id, source.name)}>Delete</button></form>)}</div>
   </div>;
-}
-
-function LeadActionForm({ lead, onDone, onError }: { lead: { id: string; action: 'note' | 'follow-up' }; onDone: () => void; onError: (message: string) => void }) {
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const path = lead.action === 'note' ? `/leads/${lead.id}/notes` : `/leads/${lead.id}/follow-ups`;
-    const body = lead.action === 'note'
-      ? { content: form.get('content') }
-      : { description: form.get('description'), dueAt: new Date(String(form.get('dueAt'))).toISOString() };
-    try { await mutate(path, 'POST', body); onDone(); }
-    catch (error) { onError(error instanceof Error ? error.message : 'Could not save this update'); }
-  }
-  return <form className="space-y-4" onSubmit={submit}>
-    {lead.action === 'note' ? <div><label className="label" htmlFor="content">Note</label><textarea className="field min-h-28" id="content" name="content" maxLength={5000} required /></div> : <><div><label className="label" htmlFor="description">Follow-up details</label><textarea className="field min-h-24" id="description" name="description" maxLength={2000} required /></div><Field name="dueAt" label="Due date and time" type="datetime-local" required /></>}
-    <button className="primary w-full">{lead.action === 'note' ? 'Add note' : 'Schedule follow-up'}</button>
-  </form>;
 }
 
 function Field({ name, label, type = 'text', required = false }: { name: string; label: string; type?: string; required?: boolean }) {
