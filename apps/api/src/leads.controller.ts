@@ -50,6 +50,8 @@ export class LeadsController {
       ? await this.prisma.lead.findFirst({
           where,
           include: {
+            assignee: { select: { id: true, name: true } },
+            source: { select: { id: true, name: true } },
             notes: {
               take: 50,
               orderBy: { createdAt: 'desc' },
@@ -115,6 +117,12 @@ export class LeadsController {
           assigneeId: true,
           updatedAt: true,
           assignee: { select: { id: true, name: true } },
+          followUps: {
+            where: { completed: false },
+            orderBy: { dueAt: 'asc' },
+            take: 1,
+            select: { description: true, dueAt: true },
+          },
         },
         orderBy: [primarySort, { id: 'asc' }],
         skip: (query.page - 1) * pageSize,

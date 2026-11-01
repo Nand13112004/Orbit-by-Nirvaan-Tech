@@ -16,11 +16,13 @@ type Lead = {
   status: string;
   sourceId?: string | null;
   assigneeId: string;
-  assignee: { id: string; name: string };
+  assignee?: { id: string; name: string } | null;
+  source?: { id: string; name: string } | null;
   createdAt?: string;
   updatedAt: string;
 };
-type LeadPageData = { items: Lead[]; total: number; page: number; pageSize: number; totalPages: number };
+type LeadListItem = Lead & { followUps: { description: string; dueAt: string }[] };
+type LeadPageData = { items: LeadListItem[]; total: number; page: number; pageSize: number; totalPages: number };
 type User = { id: string; name: string; email: string; role: string; active: boolean; managerId?: string | null };
 type FollowUp = { id: string; leadId: string; description: string; dueAt: string; completed: boolean; lead: { id: string; name: string } };
 type Analytics = { totalLeads: number; byStatus: { status: string; _count: { _all: number } }[]; openFollowUps: number };
@@ -89,8 +91,8 @@ export function LeadsPage() {
   function exportCsv() {
     const rows = query.data?.items ?? [];
     const csv = [
-      ['Name', 'Company', 'Email', 'Phone', 'Status', 'Owner'].map(csvCell).join(','),
-      ...rows.map((lead) => [lead.name, lead.company ?? '', lead.email ?? '', lead.phone ?? '', STATUS_LABELS[lead.status] ?? lead.status, lead.assignee.name].map(csvCell).join(',')),
+      ['Name', 'Company', 'Email', 'Phone', 'Status', 'Follow-up'].map(csvCell).join(','),
+      ...rows.map((lead) => [lead.name, lead.company ?? '', lead.email ?? '', lead.phone ?? '', STATUS_LABELS[lead.status] ?? lead.status, lead.followUps?.[0] ? formatDate(lead.followUps[0].dueAt) : ''].map(csvCell).join(',')),
     ].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -114,11 +116,11 @@ export function LeadsPage() {
           {query.data && <span className="crm-count">{query.data.total} lead{query.data.total === 1 ? '' : 's'}</span>}
         </div>
         {query.isLoading ? <LoadingPanel label="Loading leads" /> : query.isError ? <ErrorPanel message={query.error.message} /> : query.data?.items.length ? (
-          <div className="crm-table-scroll"><table className="crm-table"><thead><tr><th>Lead</th><th>Status</th><th>Owner</th><th>Last updated</th><th aria-label="Actions" /></tr></thead><tbody>
+          <div className="crm-table-scroll"><table className="crm-table"><thead><tr><th>Lead</th><th>Status</th><th>Follow-up</th><th>Last updated</th><th aria-label="Actions" /></tr></thead><tbody>
             {query.data.items.map((lead) => <tr key={lead.id}>
               <td><Link className="crm-lead-link" href={`leads/${lead.id}`}>{lead.name}<small>{lead.company ?? lead.email ?? 'No company or email provided'}</small></Link></td>
               <td><select className="crm-status-select" aria-label={`Status for ${lead.name}`} value={lead.status} disabled={statusUpdate.isPending} onChange={(event) => statusUpdate.mutate({ id: lead.id, nextStatus: event.target.value })}>{STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABELS[item]}</option>)}</select></td>
-              <td>{lead.assignee?.name ?? 'Unassigned'}</td>
+              <td>{lead.followUps?.[0] ? <><strong>{lead.followUps[0].description}</strong><small>{formatDate(lead.followUps[0].dueAt)}</small></> : '—'}</td>
               <td>{formatDate(lead.updatedAt)}</td>
               <td><div className="crm-row-actions"><Link className="crm-icon-link" href={`leads/${lead.id}`} aria-label={`View ${lead.name}`}><ArrowUpRight size={17} /></Link>{(me.data?.user.role === 'ADMIN' || me.data?.user.role === 'MANAGER') && <button type="button" className="crm-delete-row" disabled={deleteLead.isPending} onClick={() => confirmDelete(lead)}>Delete</button>}</div></td>
             </tr>)}
@@ -263,7 +265,7 @@ export function LeadDetailsPage() {
       <div className="crm-details-main">
         <section className="panel crm-detail-card">
           <h2>Contact information</h2>
-          <dl className="crm-contact-grid"><Detail label="Company" value={lead.company} /><Detail label="Email" value={lead.email} /><Detail label="Phone" value={lead.phone} /><Detail label="Assigned to" value={lead.assignee?.name} /><Detail label="Created" value={lead.createdAt ? formatDate(lead.createdAt) : '—'} /><Detail label="Last updated" value={formatDate(lead.updatedAt)} /></dl>
+          <dl className="crm-contact-grid"><Detail label="Company" value={lead.company} /><Detail label="Email" value={lead.email} /><Detail label="Phone" value={lead.phone} /><Detail label="Source" value={lead.source?.name} /><Detail label="Assigned to" value={lead.assignee?.name} /><Detail label="Created" value={lead.createdAt ? formatDate(lead.createdAt) : '—'} /><Detail label="Last updated" value={formatDate(lead.updatedAt)} /></dl>
         </section>
         <section className="panel crm-detail-card">
           <h2>Follow-up history</h2>
