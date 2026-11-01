@@ -982,11 +982,18 @@ html.dark .dashboard-content [class~="divide-slate-100"] > :not(:last-child) {
 }
 
 .crm-status-new { background: #eff6ff; color: #2563eb; }
-.crm-status-contacted { background: #ecfeff; color: #0e7490; }
-.crm-status-qualified { background: #eef2ff; color: #4f46e5; }
-.crm-status-proposal { background: #f5f3ff; color: #7c3aed; }
-.crm-status-won { background: #ecfdf5; color: #047857; }
-.crm-status-lost { background: #fef2f2; color: #b91c1c; }
+.crm-status-contacted { background: #eef2ff; color: #4f46e5; }
+.crm-status-qualified { background: #f5f3ff; color: #7c3aed; }
+.crm-status-proposal { background: #fffbeb; color: #d97706; }
+.crm-status-won { background: #ecfdf5; color: #059669; }
+.crm-status-lost { background: #f1f5f9; color: #64748b; }
+
+.crm-status-select.crm-status-new { border-color: #bfdbfe; background: #eff6ff; color: #2563eb; }
+.crm-status-select.crm-status-contacted { border-color: #c7d2fe; background: #eef2ff; color: #4f46e5; }
+.crm-status-select.crm-status-qualified { border-color: #ddd6fe; background: #f5f3ff; color: #7c3aed; }
+.crm-status-select.crm-status-proposal { border-color: #fde68a; background: #fffbeb; color: #d97706; }
+.crm-status-select.crm-status-won { border-color: #a7f3d0; background: #ecfdf5; color: #059669; }
+.crm-status-select.crm-status-lost { border-color: #cbd5e1; background: #f1f5f9; color: #64748b; }
 
 .crm-icon-link {
   display: grid;
@@ -1552,6 +1559,12 @@ html.dark .crm-search,
 html.dark .crm-status-select,
 html.dark .crm-kanban-column,
 html.dark .crm-followup-date { border-color: #2a384d; background: #111b2b; color: #a7b5c9; }
+html.dark .crm-status-select.crm-status-new { border-color: #1d4ed8; background: #1e3a8a; color: #bfdbfe; }
+html.dark .crm-status-select.crm-status-contacted { border-color: #4338ca; background: #312e81; color: #c7d2fe; }
+html.dark .crm-status-select.crm-status-qualified { border-color: #6d28d9; background: #4c1d95; color: #ddd6fe; }
+html.dark .crm-status-select.crm-status-proposal { border-color: #b45309; background: #78350f; color: #fde68a; }
+html.dark .crm-status-select.crm-status-won { border-color: #047857; background: #064e3b; color: #a7f3d0; }
+html.dark .crm-status-select.crm-status-lost { border-color: #475569; background: #334155; color: #cbd5e1; }
 html.dark .workspace-search input,
 html.dark .crm-search input { color: #edf3fc; }
 html.dark .crm-table th { background: #151f30; color: #9aa8bc; }
