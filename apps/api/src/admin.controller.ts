@@ -58,12 +58,19 @@ export class AdminController {
     @Query('completed') completed?: string,
     @Query('take') takeValue?: string,
     @Query('page') pageValue?: string,
+    @Query('dueFrom') dueFromValue?: string,
+    @Query('dueBefore') dueBeforeValue?: string,
   ) {
     if (completed !== undefined && !['true', 'false', 'all'].includes(completed)) {
       throw new BadRequestException('completed must be true, false, or all');
     }
     const take = z.coerce.number().int().min(1).max(25).default(10).parse(takeValue);
     const page = z.coerce.number().int().min(1).max(100_000).default(1).parse(pageValue);
+    const dueFrom = dueFromValue === undefined ? undefined : new Date(z.string().datetime().parse(dueFromValue));
+    const dueBefore = dueBeforeValue === undefined ? undefined : new Date(z.string().datetime().parse(dueBeforeValue));
+    if (dueFrom && dueBefore && dueFrom >= dueBefore) {
+      throw new BadRequestException('dueFrom must be earlier than dueBefore');
+    }
     const leadScope = user.role === UserRole.ADMIN
       ? {}
       : user.role === UserRole.MANAGER
@@ -71,6 +78,12 @@ export class AdminController {
         : { assigneeId: user.id };
     const where = {
       ...(completed === 'all' ? {} : { completed: completed === 'true' }),
+      ...(dueFrom || dueBefore ? {
+        dueAt: {
+          ...(dueFrom ? { gte: dueFrom } : {}),
+          ...(dueBefore ? { lt: dueBefore } : {}),
+        },
+      } : {}),
       lead: leadScope,
     };
     return this.prisma.$transaction([

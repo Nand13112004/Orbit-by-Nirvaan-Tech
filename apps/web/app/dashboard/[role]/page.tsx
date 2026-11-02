@@ -30,9 +30,12 @@ export default function DashboardPage() {
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [showSourceForm, setShowSourceForm] = useState(false);
-  const [includeCompleted, setIncludeCompleted] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { isDark, toggleTheme } = useTheme();
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const todayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -50,8 +53,8 @@ export default function DashboardPage() {
   const user = me.data?.user;
   const analytics = useQuery({ queryKey: ['analytics'], queryFn: () => api<Analytics>('/analytics'), enabled: !!user });
   const followUps = useQuery({
-    queryKey: ['follow-ups', includeCompleted],
-    queryFn: () => api<FollowUp[]>(`/follow-ups?take=10&completed=${includeCompleted ? 'all' : 'false'}`),
+    queryKey: ['follow-ups', 'today', todayKey],
+    queryFn: () => api<FollowUp[]>(`/follow-ups?take=25&completed=false&dueFrom=${encodeURIComponent(todayStart.toISOString())}&dueBefore=${encodeURIComponent(tomorrowStart.toISOString())}`),
     enabled: !!user,
   });
   const users = useQuery({
@@ -208,9 +211,9 @@ export default function DashboardPage() {
         </section>
 
         <section id="follow-ups" className="panel scroll-mt-24">
-            <div className="flex items-start justify-between gap-3 border-b border-[#e5e7eb] px-5 py-4"><div><h2 className="font-semibold text-[#111827]">Follow-ups</h2><p className="mt-1 text-xs text-[#6b7280]">Your team’s next steps</p></div><button className="quiet px-2 py-1 text-xs" onClick={() => setIncludeCompleted((value) => !value)}>{includeCompleted ? 'Open only' : 'Show completed'}</button></div>
+            <div className="border-b border-[#e5e7eb] px-5 py-4"><h2 className="font-semibold text-[#111827]">Today’s pending follow-ups</h2><p className="mt-1 text-xs text-[#6b7280]">Follow-ups due today</p></div>
             <div className="divide-y divide-[#edf0ed]">
-              {followUps.isLoading ? <div className="space-y-5 p-5" role="status" aria-label="Loading follow-ups">{Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2"><Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-1/3" /></div>)}</div> : followUps.isError ? <p role="alert" className="p-5 text-sm text-red-700">Could not load follow-ups.</p> : followUps.data?.length ? followUps.data.map((item) => <div key={item.id} className="px-5 py-4"><p className="text-sm font-medium text-[#111827]">{item.lead.name}{item.completed && <span className="status-chip ml-2 bg-gray-100 text-gray-600">Completed</span>}</p><p className="mt-1 text-xs text-[#6b7280]">{item.description}</p><p className="mt-2 text-xs font-medium text-blue-700">{new Date(item.dueAt).toLocaleString()}</p><div className="mt-3 flex gap-2">{!item.completed && <button className="quiet px-2 py-1 text-xs" onClick={() => updateFollowUp.mutate({ leadId: item.leadId, id: item.id, data: { completed: true } })}>Mark complete</button>}<button className="quiet px-2 py-1 text-xs text-red-700" onClick={() => deleteFollowUp.mutate({ leadId: item.leadId, id: item.id })}>Delete</button></div></div>) : <p className="p-5 text-sm text-[#6b7280]">No follow-ups scheduled.</p>}
+              {followUps.isLoading ? <div className="space-y-5 p-5" role="status" aria-label="Loading follow-ups">{Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2"><Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-1/3" /></div>)}</div> : followUps.isError ? <p role="alert" className="p-5 text-sm text-red-700">Could not load follow-ups.</p> : followUps.data?.length ? followUps.data.map((item) => <div key={item.id} className="px-5 py-4"><p className="text-sm font-medium text-[#111827]">{item.lead.name}</p><p className="mt-1 text-xs text-[#6b7280]">{item.description}</p><p className="mt-2 text-xs font-medium text-blue-700">{new Date(item.dueAt).toLocaleString()}</p><div className="mt-3 flex gap-2"><button className="quiet px-2 py-1 text-xs" onClick={() => updateFollowUp.mutate({ leadId: item.leadId, id: item.id, data: { completed: true } })}>Mark complete</button><button className="quiet px-2 py-1 text-xs text-red-700" onClick={() => deleteFollowUp.mutate({ leadId: item.leadId, id: item.id })}>Delete</button></div></div>) : <p className="p-5 text-sm text-[#6b7280]">No pending follow-ups due today.</p>}
             </div>
         </section>
 
