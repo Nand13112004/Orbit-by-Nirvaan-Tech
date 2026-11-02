@@ -57,6 +57,13 @@ export default function DashboardPage() {
     queryFn: () => api<FollowUp[]>(`/follow-ups?take=25&completed=false&dueFrom=${encodeURIComponent(todayStart.toISOString())}&dueBefore=${encodeURIComponent(tomorrowStart.toISOString())}`),
     enabled: !!user,
   });
+  const todayFollowUps = (followUps.data ?? []).filter((item) => {
+    const dueAt = new Date(item.dueAt);
+    return !item.completed
+      && dueAt.getFullYear() === now.getFullYear()
+      && dueAt.getMonth() === now.getMonth()
+      && dueAt.getDate() === now.getDate();
+  });
   const users = useQuery({
     queryKey: ['users', user?.id, user?.role, userPage, deferredUserSearch],
     queryFn: () => apiWithMetadata<User[]>(`/users?page=${userPage}&search=${encodeURIComponent(deferredUserSearch)}`),
@@ -213,7 +220,7 @@ export default function DashboardPage() {
         <section id="follow-ups" className="panel scroll-mt-24">
             <div className="border-b border-[#e5e7eb] px-5 py-4"><h2 className="font-semibold text-[#111827]">Today’s pending follow-ups</h2><p className="mt-1 text-xs text-[#6b7280]">Follow-ups due today</p></div>
             <div className="divide-y divide-[#edf0ed]">
-              {followUps.isLoading ? <div className="space-y-5 p-5" role="status" aria-label="Loading follow-ups">{Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2"><Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-1/3" /></div>)}</div> : followUps.isError ? <p role="alert" className="p-5 text-sm text-red-700">Could not load follow-ups.</p> : followUps.data?.length ? followUps.data.map((item) => <div key={item.id} className="px-5 py-4"><p className="text-sm font-medium text-[#111827]">{item.lead.name}</p><p className="mt-1 text-xs text-[#6b7280]">{item.description}</p><p className="mt-2 text-xs font-medium text-blue-700">{new Date(item.dueAt).toLocaleString()}</p><div className="mt-3 flex gap-2"><button className="quiet px-2 py-1 text-xs" onClick={() => updateFollowUp.mutate({ leadId: item.leadId, id: item.id, data: { completed: true } })}>Mark complete</button><button className="quiet px-2 py-1 text-xs text-red-700" onClick={() => deleteFollowUp.mutate({ leadId: item.leadId, id: item.id })}>Delete</button></div></div>) : <p className="p-5 text-sm text-[#6b7280]">No pending follow-ups due today.</p>}
+              {followUps.isLoading ? <div className="space-y-5 p-5" role="status" aria-label="Loading follow-ups">{Array.from({ length: 3 }, (_, index) => <div key={index} className="space-y-2"><Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-1/3" /></div>)}</div> : followUps.isError ? <p role="alert" className="p-5 text-sm text-red-700">Could not load follow-ups.</p> : todayFollowUps.length ? todayFollowUps.map((item) => <div key={item.id} className="px-5 py-4"><p className="text-sm font-medium text-[#111827]">{item.lead.name}</p><p className="mt-1 text-xs text-[#6b7280]">{item.description}</p><p className="mt-2 text-xs font-medium text-blue-700">{new Date(item.dueAt).toLocaleString()}</p><div className="mt-3 flex gap-2"><button className="quiet px-2 py-1 text-xs" onClick={() => updateFollowUp.mutate({ leadId: item.leadId, id: item.id, data: { completed: true } })}>Mark complete</button><button className="quiet px-2 py-1 text-xs text-red-700" onClick={() => deleteFollowUp.mutate({ leadId: item.leadId, id: item.id })}>Delete</button></div></div>) : <p className="p-5 text-sm text-[#6b7280]">No pending follow-ups due today.</p>}
             </div>
         </section>
 
