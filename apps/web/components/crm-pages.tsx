@@ -196,6 +196,7 @@ export function LeadDetailsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
+  const [followUpMethod, setFollowUpMethod] = useState('');
   const [deleting, setDeleting] = useState(false);
   const deletingRef = useRef(false);
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: User }>('/auth/me') });
@@ -210,9 +211,12 @@ export function LeadDetailsPage() {
     const form = new FormData(formElement);
     const value = String(form.get('content') ?? '').trim();
     try {
-      const body = kind === 'note' ? { content: value } : { description: value, dueAt: new Date(String(form.get('dueAt'))).toISOString() };
+      const method = String(form.get('method') ?? '');
+      const description = method === 'Other' ? `Other: ${value}` : method;
+      const body = kind === 'note' ? { content: value } : { description, dueAt: new Date(String(form.get('dueAt'))).toISOString() };
       await mutate(`/leads/${params.id}/${kind === 'note' ? 'notes' : 'follow-ups'}`, 'POST', body);
       formElement.reset();
+      if (kind === 'follow-up') setFollowUpMethod('');
       await queryClient.invalidateQueries({ queryKey: ['lead', params.id] });
       await queryClient.invalidateQueries({ queryKey: ['follow-ups'] });
     } catch (reason) {
@@ -270,7 +274,7 @@ export function LeadDetailsPage() {
         <section className="panel crm-detail-card">
           <h2>Follow-up history</h2>
           {lead.followUps.length ? <div className="crm-timeline">{lead.followUps.map((item) => <article key={item.id} className="crm-timeline-item"><span className={`crm-timeline-dot${item.completed ? ' is-complete' : ''}`} /><div><strong>{item.description}</strong><p>{formatDate(item.dueAt)} {item.completed ? '· Completed' : '· Scheduled'}</p>{!item.completed && <button className="quiet crm-small-button" onClick={() => void completeFollowUp(item.id)}><Check size={14} /> Mark complete</button>}</div></article>)}</div> : <p className="crm-muted">No follow-ups recorded.</p>}
-          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}><h3>Schedule follow-up</h3><label><span>Reminder</span><input className="field" type="datetime-local" name="dueAt" required min={localDateTimeValue()} /></label><label><span>Notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label><button className="primary crm-button"><CalendarClock size={15} /> Schedule</button></form>
+          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}><h3>Schedule follow-up</h3><label><span>Reminder</span><input className="field" type="datetime-local" name="dueAt" required min={localDateTimeValue()} /></label><label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => setFollowUpMethod(event.target.value)} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Last WhatsApp MSG</option><option>Last Instagram MSG</option><option>Last Mail</option><option>Other</option></select></label>{followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}<button className="primary crm-button"><CalendarClock size={15} /> Schedule</button></form>
         </section>
       </div>
       <section className="panel crm-detail-card">
