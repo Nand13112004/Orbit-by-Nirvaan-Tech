@@ -20,6 +20,7 @@ import {
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Brand } from '@/components/brand';
+import { Chatbot } from '@/components/chatbot';
 import { useTheme } from '@/app/providers';
 import { api, clearCsrfToken, dashboardForRole, mutate } from '@/lib/api';
 
@@ -184,6 +185,7 @@ export function WorkspaceLayout({ children }: Readonly<{ children: React.ReactNo
         })}
         {user.role === 'ADMIN' && <Link href={`${root}/settings`} aria-label="Settings" aria-current={pathname.endsWith('/settings') ? 'page' : undefined} className={pathname.endsWith('/settings') ? 'active' : ''}><Settings2 size={19} /><span>Settings</span></Link>}
       </nav>
+      <Chatbot />
     </div>
   );
 }

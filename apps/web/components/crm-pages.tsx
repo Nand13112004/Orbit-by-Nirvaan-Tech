@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownUp, ArrowLeft, ArrowUpRight, BarChart3, CalendarClock, Check, CircleAlert, Download, Plus, Search, Users } from 'lucide-react';
+import { ArrowDownUp, ArrowLeft, ArrowUpRight, BarChart3, CalendarClock, Check, CircleAlert, Copy, Download, Plus, Search, Sparkles, Users } from 'lucide-react';
 import { api, apiWithMetadata, dashboardForRole, mutate } from '@/lib/api';
 
 type Lead = {
@@ -201,6 +201,9 @@ export function LeadDetailsPage() {
   const [error, setError] = useState('');
   const [followUpMethod, setFollowUpMethod] = useState('');
   const [followUpDestination, setFollowUpDestination] = useState('');
+  const [aiDrafts, setAiDrafts] = useState<Record<string, string>>({});
+  const [draftingFollowUpId, setDraftingFollowUpId] = useState<string | null>(null);
+  const [happyFollowUpId, setHappyFollowUpId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const deletingRef = useRef(false);
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: User }>('/auth/me') });
@@ -251,6 +254,48 @@ export function LeadDetailsPage() {
     }
   }
 
+  async function generateAiFollowUp(item: FollowUp) {
+    if (draftingFollowUpId) return;
+    setDraftingFollowUpId(item.id);
+    setError('');
+    setAiDrafts((drafts) => {
+      const remainingDrafts = { ...drafts };
+      delete remainingDrafts[item.id];
+      return remainingDrafts;
+    });
+    try {
+      const result = await mutate<{ message: string }>(
+        `/leads/${params.id}/follow-ups/${item.id}/ai-draft`,
+        'POST',
+        {},
+      );
+      setAiDrafts((drafts) => ({ ...drafts, [item.id]: result.message }));
+      setHappyFollowUpId(item.id);
+      window.setTimeout(() => {
+        setHappyFollowUpId((current) => current === item.id ? null : current);
+      }, 2600);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not create an AI follow-up draft');
+    } finally {
+      setDraftingFollowUpId(null);
+    }
+  }
+
+  async function copyAiFollowUp(id: string) {
+    const message = aiDrafts[id];
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message);
+      setAiDrafts((drafts) => {
+        const remainingDrafts = { ...drafts };
+        delete remainingDrafts[id];
+        return remainingDrafts;
+      });
+    } catch {
+      setError('Could not copy the draft. Check clipboard permissions and try again.');
+    }
+  }
+
   async function deleteLead() {
     if (deletingRef.current || !leadQuery.data) return;
     if (!window.confirm(`Delete "${leadQuery.data.name}"? This will permanently remove this lead and its notes and follow-ups.`)) return;
@@ -289,7 +334,22 @@ export function LeadDetailsPage() {
         </section>
         <section className="panel crm-detail-card">
           <h2>Follow-up history</h2>
-          {lead.followUps.length ? <div className="crm-timeline">{lead.followUps.map((item) => <article key={item.id} className="crm-timeline-item"><span className={`crm-timeline-dot${item.completed ? ' is-complete' : ''}`} /><div><strong>{item.description}</strong><p>{formatDate(item.dueAt)} {item.completed ? '· Completed' : '· Scheduled'}</p>{!item.completed && <>{item.destination && <a className="primary crm-small-button" href={item.destination} target="_blank" rel="noreferrer">Go to follow-up</a>}<button className="quiet crm-small-button" onClick={() => void completeFollowUp(item.id)}><Check size={14} /> Mark complete</button></>}</div></article>)}</div> : <p className="crm-muted">No follow-ups recorded.</p>}
+          {lead.followUps.length ? <div className="crm-timeline">{lead.followUps.map((item) => <article key={item.id} className="crm-timeline-item">
+            <span className={`crm-timeline-dot${item.completed ? ' is-complete' : ''}`} />
+            <div className="crm-timeline-content">
+              <strong>{item.description}</strong>
+              <p>{formatDate(item.dueAt)} {item.completed ? '· Completed' : '· Scheduled'}</p>
+              {!item.completed && <div className="crm-followup-actions">
+                {item.destination && <a className="primary crm-small-button" href={item.destination} target="_blank" rel="noreferrer">Go to follow-up</a>}
+                {isAiDraftableFollowUp(item) && <button className="quiet crm-small-button" disabled={draftingFollowUpId !== null} onClick={() => void generateAiFollowUp(item)}><Sparkles size={14} />{draftingFollowUpId === item.id ? 'Writing…' : happyFollowUpId === item.id ? 'Draft ready' : 'AI follow-up'}</button>}
+                <button className="quiet crm-small-button" onClick={() => void completeFollowUp(item.id)}><Check size={14} /> Mark complete</button>
+              </div>}
+              {aiDrafts[item.id] && <div className="crm-ai-followup-draft">
+                <p>{aiDrafts[item.id]}</p>
+                <button className="primary crm-small-button" onClick={() => void copyAiFollowUp(item.id)}><Copy size={14} /> Copy message</button>
+              </div>}
+            </div>
+          </article>)}</div> : <p className="crm-muted">No follow-ups recorded.</p>}
           <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}>
             <h3>Schedule follow-up</h3>
             <label><span>Reminder</span><select className="field" name="dueAt" required defaultValue={reminderDates[0].value}>{reminderDates.map((date) => <option key={date.value} value={date.value}>{date.label}</option>)}</select></label>
@@ -539,6 +599,11 @@ export function SettingsPage() {
 
 function Detail({ label, value }: { label: string; value?: string | null }) {
   return <div><dt>{label}</dt><dd>{value || '—'}</dd></div>;
+}
+
+function isAiDraftableFollowUp(item: FollowUp) {
+  const description = item.description.toLowerCase();
+  return description.includes('whatsapp') || description.includes('instagram') || description.includes('mail');
 }
 
 function csvCell(value: string) {

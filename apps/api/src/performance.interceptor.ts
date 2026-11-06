@@ -23,10 +23,12 @@ export class PerformanceInterceptor implements NestInterceptor {
       finalize(() => {
         const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
         const roundedDurationMs = Number(durationMs.toFixed(2));
-        response.setHeader(
-          'Server-Timing',
-          `middleware;dur=${middlewareDurationMs ?? 0}, controller;dur=${roundedDurationMs}`,
-        );
+        if (!response.headersSent) {
+          response.setHeader(
+            'Server-Timing',
+            `middleware;dur=${middlewareDurationMs ?? 0}, controller;dur=${roundedDurationMs}`,
+          );
+        }
         console.info(JSON.stringify({
           event: 'controller_response',
           requestId,

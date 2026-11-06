@@ -152,6 +152,94 @@ export async function mutate<T>(path: string, method: 'POST' | 'PATCH' | 'DELETE
   }
 }
 
+export async function streamChat(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  onToken: (token: string) => void,
+) {
+  const body = JSON.stringify({ messages });
+
+  async function send(csrf: string) {
+    const response = await fetch(`${API_URL}/chat`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      body,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let message = `Request failed (${response.status})`;
+      try {
+        const errorBody = JSON.parse(errorText) as { message?: string | string[] };
+        if (typeof errorBody.message === 'string') message = errorBody.message;
+        if (Array.isArray(errorBody.message)) message = errorBody.message.join(', ');
+      } catch {
+        if (errorText) message = errorText;
+      }
+      throw new Error(message);
+    }
+
+    if (!response.body) throw new Error('The chat stream is unavailable. Please try again.');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finished = false;
+    let receivedToken = false;
+
+    function processFrame(frame: string) {
+      let eventName = 'message';
+      const data: string[] = [];
+      for (const line of frame.split(/\r?\n/)) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+      }
+      if (eventName === 'error') {
+        const parsed = JSON.parse(data.join('\n')) as { message?: string };
+        throw new Error(parsed.message ?? 'The AI response was interrupted. Please try again.');
+      }
+      const payload = data.join('\n');
+      if (!payload || payload === '[DONE]') {
+        if (payload === '[DONE]') finished = true;
+        return;
+      }
+      const parsed = JSON.parse(payload) as {
+        choices?: { delta?: { content?: unknown } }[];
+      };
+      const token = parsed.choices?.[0]?.delta?.content;
+      if (typeof token === 'string' && token) {
+        receivedToken = true;
+        onToken(token);
+      }
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) processFrame(frame);
+        if (done) break;
+      }
+      if (buffer.trim()) processFrame(buffer);
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (!finished || !receivedToken) {
+      throw new Error('The AI response ended unexpectedly. Please try again.');
+    }
+  }
+
+  try {
+    await send(await getCsrfToken());
+  } catch (error) {
+    if (!(error instanceof Error) || !/invalid csrf token/i.test(error.message)) throw error;
+    clearCsrfToken();
+    await send(await getCsrfToken());
+  }
+}
+
 export function dashboardForRole(role: string) {
   if (role === 'ADMIN') return '/dashboard/admin';
   if (role === 'MANAGER') return '/dashboard/manager';

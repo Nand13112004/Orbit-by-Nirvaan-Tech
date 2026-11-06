@@ -9,10 +9,11 @@ import { UsersController } from './users.controller';
 import { AdminController } from './admin.controller';
 import { AnalyticsCacheService } from './analytics-cache.service';
 import { HealthController } from './health.controller';
+import { ChatController } from './chat.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }])],
-  controllers: [AuthController, LeadsController, UsersController, AdminController, HealthController],
+  controllers: [AuthController, LeadsController, UsersController, AdminController, HealthController, ChatController],
   providers: [
     PrismaService,
     AnalyticsCacheService,

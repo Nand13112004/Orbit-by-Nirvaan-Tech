@@ -51,6 +51,10 @@ Orbit by Nirvaan Tech is a role-based business workspace built as a pnpm monorep
 
    Open `http://localhost:3000`. The API listens at `http://localhost:4000/api`. In development, the frontend talks directly to that local API.
 
+6. (Optional) Enable the workspace chatbot by setting `OPENROUTER_API_KEY` in `apps/api/.env` (or in the API service's deployment environment), then restart the API. The floating Orbit Assistant uses `nvidia/nemotron-3-ultra-550b-a55b:free`; the key stays on the API server and is never sent to the browser. Chat requires a signed-in user and is limited to 10 requests per minute per client.
+
+   The floating Orbit Assistant button uses the GLTF robot in `apps/web/public/orbit-ai/`. Keep `scene.gltf`, `scene.bin`, its textures, and the included model license together. The model has no embedded animation clips, so the UI animates its idle, greeting, thinking, happy, and playful motions procedurally.
+
 ## Accounts and access
 
 - **Admin:** all leads and analytics; user creation/management, lead sources, settings, and password resets.

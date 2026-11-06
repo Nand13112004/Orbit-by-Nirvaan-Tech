@@ -1,5 +1,6 @@
 import {
   Body,
+  BadGatewayException,
   Controller,
   Delete,
   ForbiddenException,
@@ -10,8 +11,10 @@ import {
   Patch,
   Post,
   Query,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { LeadStatus, Prisma, UserRole } from '@prisma/client';
 import { z } from 'zod';
 import { AuthGuard, AuthRequest, CurrentUser, SafeUser } from './common';
@@ -205,6 +208,98 @@ export class LeadsController {
     });
     this.analyticsCache.invalidate();
     return followUp;
+  }
+
+  @Post(':id/follow-ups/:followUpId/ai-draft')
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  async draftFollowUpMessage(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('followUpId') followUpId: string,
+  ) {
+    const [lead, followUp] = await Promise.all([
+      this.prisma.lead.findFirst({
+        where: { id, ...this.whereFor(user) },
+        select: { name: true, company: true },
+      }),
+      this.prisma.followUp.findFirst({ where: { id: followUpId, leadId: id } }),
+    ]);
+    if (!lead || !followUp) throw new NotFoundException('Lead or follow-up not found');
+
+    const description = followUp.description.toLowerCase();
+    const channel = description.includes('whatsapp')
+      ? 'WhatsApp'
+      : description.includes('instagram')
+        ? 'Instagram'
+        : description.includes('mail')
+          ? 'Email'
+          : null;
+    if (!channel) {
+      throw new BadRequestException('AI follow-up drafts are available for WhatsApp, Instagram, and Mail follow-ups.');
+    }
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      throw new ServiceUnavailableException('Chat is not configured. Add OPENROUTER_API_KEY to the API environment.');
+    }
+
+    let response: Response;
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.APP_ORIGIN ?? '',
+          'X-Title': 'Orbit by Nirvaan Tech',
+        },
+        body: JSON.stringify({
+          model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+          max_tokens: 700,
+          messages: [
+            {
+              role: 'system',
+              content: 'Write a ready-to-send follow-up message for Nirvaan Tech about a possible website project. Match the requested channel and examples in tone: WhatsApp is warm and conversational with short paragraphs and a friendly emoji; Instagram is concise, friendly, and conversational with an emoji; Email is professional, with a salutation, several brief paragraphs, and a courteous close. Address a business as "<business name> Team" and an individual by their first name. Mention that this follows up on earlier outreach about a website and invite them to share their thoughts or requirements. Never invent business offerings, prior promises, sample work, prices, or facts not supplied. Sign WhatsApp drafts "Nand\\nNirvaan Tech", Instagram drafts "Nand\\nFounder, Nirvaan Tech"; do not add a sender signature to email. Output only the message text, with no subject line, explanation, quote marks, or Markdown formatting.',
+            },
+            {
+              role: 'user',
+              content: JSON.stringify({
+                channel,
+                leadName: lead.name,
+                company: lead.company,
+              }),
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(45_000),
+      });
+    } catch {
+      throw new BadGatewayException('Could not reach the AI service. Please try again.');
+    }
+
+    if (!response.ok) {
+      console.error(JSON.stringify({ event: 'openrouter_follow_up_draft_error', status: response.status }));
+      if (response.status === 429) {
+        throw new BadGatewayException('The AI service is busy. Please wait a moment and try again.');
+      }
+      throw new BadGatewayException('The AI service could not create a draft. Please try again.');
+    }
+
+    let result: unknown;
+    try {
+      result = await response.json();
+    } catch {
+      throw new BadGatewayException('The AI service returned an unexpected response.');
+    }
+    const parsed = z.object({
+      choices: z.array(z.object({
+        message: z.object({ content: z.string().trim().min(1).max(4000) }),
+      })).min(1),
+    }).safeParse(result);
+    if (!parsed.success) {
+      throw new BadGatewayException('The AI service returned an unexpected response.');
+    }
+    return { message: parsed.data.choices[0].message.content };
   }
 
   @Patch(':id/follow-ups/:followUpId')
