@@ -218,11 +218,7 @@ export function LeadDetailsPage() {
       const method = String(form.get('method') ?? '');
       const description = method === 'Other' ? `Other: ${value}` : method;
       const destination = kind === 'follow-up'
-        ? method.includes('WhatsApp')
-          ? whatsappDestination(followUpDestination)
-          : method.includes('Instagram') || method.includes('Mail')
-            ? secureDestination(followUpDestination)
-            : undefined
+        ? followUpDestinationFor(method, followUpDestination)
         : undefined;
       const body = kind === 'note' ? { content: value } : {
         description,
@@ -562,6 +558,12 @@ function whatsappDestination(value: string) {
     throw new Error('Enter a valid WhatsApp number with its country code');
   }
   return `https://wa.me/+${digits}`;
+}
+
+function followUpDestinationFor(method: string, value: string) {
+  if (method.includes('WhatsApp')) return whatsappDestination(value);
+  if (method.includes('Instagram') || method.includes('Mail')) return secureDestination(value);
+  return undefined;
 }
 
 function secureDestination(value: string) {
