@@ -94,6 +94,7 @@ export class AdminController {
         leadId: true,
         description: true,
         dueAt: true,
+        destination: true,
         completed: true,
         lead: { select: { id: true, name: true } },
       },

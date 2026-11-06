@@ -22,10 +22,10 @@ type Lead = {
   createdAt?: string;
   updatedAt: string;
 };
-type LeadListItem = Lead & { followUps: { description: string; dueAt: string }[] };
+type LeadListItem = Lead & { followUps: { description: string; dueAt: string; destination?: string | null }[] };
 type LeadPageData = { items: LeadListItem[]; total: number; page: number; pageSize: number; totalPages: number };
 type User = { id: string; name: string; email: string; role: string; active: boolean; managerId?: string | null };
-type FollowUp = { id: string; leadId: string; description: string; dueAt: string; completed: boolean; lead: { id: string; name: string } };
+type FollowUp = { id: string; leadId: string; description: string; dueAt: string; destination?: string | null; completed: boolean; lead: { id: string; name: string } };
 type Analytics = { totalLeads: number; byStatus: { status: string; _count: { _all: number } }[]; openFollowUps: number };
 const STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const STATUS_LABELS: Record<string, string> = {
@@ -121,7 +121,7 @@ export function LeadsPage() {
             {query.data.items.map((lead) => <tr key={lead.id}>
               <td><Link className="crm-lead-link" href={`leads/${lead.id}`}>{lead.name}<small>{lead.company ?? lead.email ?? 'No company or email provided'}</small></Link></td>
               <td><select className={`crm-status-select crm-status-${lead.status.toLowerCase()}`} aria-label={`Status for ${lead.name}`} value={lead.status} disabled={statusUpdate.isPending} onChange={(event) => statusUpdate.mutate({ id: lead.id, nextStatus: event.target.value })}>{STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABELS[item]}</option>)}</select></td>
-              <td>{lead.followUps?.[0] ? <><strong>{lead.followUps[0].description}</strong><small>{formatDate(lead.followUps[0].dueAt)}</small></> : '—'}</td>
+              <td>{lead.followUps?.[0] ? <div className="crm-followup-cell">{lead.followUps[0].destination && <a className="primary crm-small-button" href={lead.followUps[0].destination} target="_blank" rel="noreferrer">Go to follow-up</a>}<strong>{lead.followUps[0].description}</strong><small>{formatDate(lead.followUps[0].dueAt)}</small></div> : '—'}</td>
               <td>{formatDate(lead.updatedAt)}</td>
               <td><div className="crm-row-actions"><Link className="crm-icon-link" href={`leads/${lead.id}`} aria-label={`View ${lead.name}`}><ArrowUpRight size={17} /></Link>{(me.data?.user.role === 'ADMIN' || me.data?.user.role === 'MANAGER') && <button type="button" className="crm-delete-row" disabled={deleteLead.isPending} onClick={() => confirmDelete(lead)}>Delete</button>}</div></td>
             </tr>)}
@@ -200,6 +200,7 @@ export function LeadDetailsPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [followUpMethod, setFollowUpMethod] = useState('');
+  const [followUpDestination, setFollowUpDestination] = useState('');
   const [deleting, setDeleting] = useState(false);
   const deletingRef = useRef(false);
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ user: User }>('/auth/me') });
@@ -216,10 +217,24 @@ export function LeadDetailsPage() {
     try {
       const method = String(form.get('method') ?? '');
       const description = method === 'Other' ? `Other: ${value}` : method;
-      const body = kind === 'note' ? { content: value } : { description, dueAt: dateOnlyAtNoonIso(String(form.get('dueAt'))) };
+      const destination = kind === 'follow-up'
+        ? method.includes('WhatsApp')
+          ? whatsappDestination(followUpDestination)
+          : method.includes('Instagram') || method.includes('Mail')
+            ? secureDestination(followUpDestination)
+            : undefined
+        : undefined;
+      const body = kind === 'note' ? { content: value } : {
+        description,
+        dueAt: dateOnlyAtNoonIso(String(form.get('dueAt'))),
+        ...(destination ? { destination } : {}),
+      };
       await mutate(`/leads/${params.id}/${kind === 'note' ? 'notes' : 'follow-ups'}`, 'POST', body);
       formElement.reset();
-      if (kind === 'follow-up') setFollowUpMethod('');
+      if (kind === 'follow-up') {
+        setFollowUpMethod('');
+        setFollowUpDestination('');
+      }
       await queryClient.invalidateQueries({ queryKey: ['lead', params.id] });
       await queryClient.invalidateQueries({ queryKey: ['follow-ups'] });
     } catch (reason) {
@@ -277,8 +292,8 @@ export function LeadDetailsPage() {
         </section>
         <section className="panel crm-detail-card">
           <h2>Follow-up history</h2>
-          {lead.followUps.length ? <div className="crm-timeline">{lead.followUps.map((item) => <article key={item.id} className="crm-timeline-item"><span className={`crm-timeline-dot${item.completed ? ' is-complete' : ''}`} /><div><strong>{item.description}</strong><p>{formatDate(item.dueAt)} {item.completed ? '· Completed' : '· Scheduled'}</p>{!item.completed && <button className="quiet crm-small-button" onClick={() => void completeFollowUp(item.id)}><Check size={14} /> Mark complete</button>}</div></article>)}</div> : <p className="crm-muted">No follow-ups recorded.</p>}
-          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}><h3>Schedule follow-up</h3><label><span>Reminder</span><select className="field" name="dueAt" required defaultValue={reminderDates[0].value}>{reminderDates.map((date) => <option key={date.value} value={date.value}>{date.label}</option>)}</select></label><label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => setFollowUpMethod(event.target.value)} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Last WhatsApp MSG</option><option>Last Instagram MSG</option><option>Last Mail</option><option>Other</option></select></label>{followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}<button className="primary crm-button"><CalendarClock size={15} /> Schedule</button></form>
+          {lead.followUps.length ? <div className="crm-timeline">{lead.followUps.map((item) => <article key={item.id} className="crm-timeline-item"><span className={`crm-timeline-dot${item.completed ? ' is-complete' : ''}`} /><div><strong>{item.description}</strong><p>{formatDate(item.dueAt)} {item.completed ? '· Completed' : '· Scheduled'}</p>{!item.completed && <>{item.destination && <a className="primary crm-small-button" href={item.destination} target="_blank" rel="noreferrer">Go to follow-up</a>}<button className="quiet crm-small-button" onClick={() => void completeFollowUp(item.id)}><Check size={14} /> Mark complete</button></>}</div></article>)}</div> : <p className="crm-muted">No follow-ups recorded.</p>}
+          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}><h3>Schedule follow-up</h3><label><span>Reminder</span><select className="field" name="dueAt" required defaultValue={reminderDates[0].value}>{reminderDates.map((date) => <option key={date.value} value={date.value}>{date.label}</option>)}</select></label><label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => { setFollowUpMethod(event.target.value); setFollowUpDestination(''); }} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Last WhatsApp MSG</option><option>Last Instagram MSG</option><option>Last Mail</option><option>Other</option></select></label>{followUpMethod.includes('WhatsApp') && <label><span>WhatsApp number</span><input className="field" name="destination" type="tel" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="+91 81289 27827" required /></label>}{followUpMethod.includes('Instagram') && <label><span>Instagram chat URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://www.instagram.com/" required /></label>}{followUpMethod.includes('Mail') && <label><span>Gmail URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://mail.google.com/" required /></label>}{followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}<button className="primary crm-button"><CalendarClock size={15} /> Schedule</button></form>
         </section>
       </div>
       <section className="panel crm-detail-card">
@@ -354,7 +369,7 @@ export function FollowUpsPage({ calendar = false }: { calendar?: boolean }) {
       {followUpsQuery.isLoading ? <LoadingPanel label="Loading follow-ups" /> : followUpsQuery.isError ? <ErrorPanel message={followUpsQuery.error.message} /> : filtered.length ? filtered.map((item) => <article className="crm-followup-row" key={item.id}>
         <div className="crm-followup-date"><strong>{new Date(item.dueAt).toLocaleDateString(undefined, { day: '2-digit' })}</strong><span>{new Date(item.dueAt).toLocaleDateString(undefined, { month: 'short' })}</span></div>
         <div className="crm-followup-copy"><Link href={`leads/${item.leadId}`}><strong>{item.lead.name}</strong></Link><p>{item.description}</p><small>{new Date(item.dueAt).toLocaleString()}</small></div>
-        {item.completed ? <span className="crm-status crm-status-won">Completed</span> : <button className="quiet crm-small-button" disabled={update.isPending} onClick={() => update.mutate(item)}><Check size={14} /> Complete</button>}
+        <div className="crm-followup-actions">{!item.completed && item.destination && <a className="primary crm-small-button" href={item.destination} target="_blank" rel="noreferrer">Go to follow-up</a>}{item.completed ? <span className="crm-status crm-status-won">Completed</span> : <button className="quiet crm-small-button" disabled={update.isPending} onClick={() => update.mutate(item)}><Check size={14} /> Complete</button>}</div>
       </article>) : <div className="crm-empty"><CalendarClock size={25} /><strong>No follow-ups in this view</strong><p>Follow-ups scheduled on lead records will appear here.</p></div>}
       {!followUpsQuery.isError && !followUpsQuery.isLoading && (followUpsQuery.data?.length ?? 0) >= 25 && <p className="crm-data-note">Showing the first 25 matching follow-ups. Open a lead to view its complete history.</p>}
     </section>
@@ -539,4 +554,25 @@ function followUpDateOptions(createdAt: string) {
 
 function dateOnlyAtNoonIso(value: string) {
   return new Date(`${value}T12:00:00`).toISOString();
+}
+
+function whatsappDestination(value: string) {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) {
+    throw new Error('Enter a valid WhatsApp number with its country code');
+  }
+  return `https://wa.me/+${digits}`;
+}
+
+function secureDestination(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('Enter a valid destination URL');
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error('Destination URL must start with https://');
+  }
+  return url.toString();
 }

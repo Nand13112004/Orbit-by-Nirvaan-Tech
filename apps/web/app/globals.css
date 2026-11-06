@@ -1259,6 +1259,27 @@ html.dark .dashboard-content [class~="divide-slate-100"] > :not(:last-child) {
   font-size: 10px;
 }
 
+.crm-followup-cell,
+.crm-followup-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.crm-followup-cell {
+  flex-wrap: wrap;
+}
+
+.crm-followup-cell small {
+  color: #8a95a7;
+  font-size: 10px;
+}
+
+.crm-followup-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .crm-note-list {
   margin-top: 18px;
 }

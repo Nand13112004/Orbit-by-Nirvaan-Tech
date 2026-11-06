@@ -32,6 +32,7 @@ const noteSchema = z.object({ content: z.string().trim().min(1).max(5000) });
 const followUpSchema = z.object({
   dueAt: z.string().datetime(),
   description: z.string().trim().min(1).max(2000),
+  destination: z.string().url().max(2048).refine((value) => new URL(value).protocol === 'https:', 'Destination must use HTTPS').optional().nullable(),
 });
 
 @Controller('leads')
@@ -122,7 +123,7 @@ export class LeadsController {
             where: { completed: false },
             orderBy: { dueAt: 'asc' },
             take: 1,
-            select: { description: true, dueAt: true },
+            select: { description: true, dueAt: true, destination: true },
           },
         },
         orderBy: [primarySort, { id: 'asc' }],
@@ -200,7 +201,7 @@ export class LeadsController {
     await this.ensureLead(user, id);
     const data = followUpSchema.parse(body);
     const followUp = await this.prisma.followUp.create({
-      data: { leadId: id, createdById: user.id, description: data.description, dueAt: new Date(data.dueAt) },
+      data: { leadId: id, createdById: user.id, description: data.description, dueAt: new Date(data.dueAt), destination: data.destination },
     });
     this.analyticsCache.invalidate();
     return followUp;
