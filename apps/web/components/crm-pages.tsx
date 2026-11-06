@@ -216,9 +216,10 @@ export function LeadDetailsPage() {
     const value = String(form.get('content') ?? '').trim();
     try {
       const method = String(form.get('method') ?? '');
-      const description = method === 'Other' ? `Other: ${value}` : method;
+      const savedFollowUp = kind === 'follow-up' ? leadQuery.data?.followUps[0] : undefined;
+      const description = savedFollowUp?.description ?? (method === 'Other' ? `Other: ${value}` : method);
       const destination = kind === 'follow-up'
-        ? followUpDestinationFor(method, followUpDestination)
+        ? savedFollowUp?.destination ?? followUpDestinationFor(method, followUpDestination)
         : undefined;
       const body = kind === 'note' ? { content: value } : {
         description,
@@ -289,7 +290,18 @@ export function LeadDetailsPage() {
         <section className="panel crm-detail-card">
           <h2>Follow-up history</h2>
           {lead.followUps.length ? <div className="crm-timeline">{lead.followUps.map((item) => <article key={item.id} className="crm-timeline-item"><span className={`crm-timeline-dot${item.completed ? ' is-complete' : ''}`} /><div><strong>{item.description}</strong><p>{formatDate(item.dueAt)} {item.completed ? '· Completed' : '· Scheduled'}</p>{!item.completed && <>{item.destination && <a className="primary crm-small-button" href={item.destination} target="_blank" rel="noreferrer">Go to follow-up</a>}<button className="quiet crm-small-button" onClick={() => void completeFollowUp(item.id)}><Check size={14} /> Mark complete</button></>}</div></article>)}</div> : <p className="crm-muted">No follow-ups recorded.</p>}
-          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}><h3>Schedule follow-up</h3><label><span>Reminder</span><select className="field" name="dueAt" required defaultValue={reminderDates[0].value}>{reminderDates.map((date) => <option key={date.value} value={date.value}>{date.label}</option>)}</select></label><label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => { setFollowUpMethod(event.target.value); setFollowUpDestination(''); }} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Last WhatsApp MSG</option><option>Last Instagram MSG</option><option>Last Mail</option><option>Other</option></select></label>{followUpMethod.includes('WhatsApp') && <label><span>WhatsApp number</span><input className="field" name="destination" type="tel" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="+91 81289 27827" required /></label>}{followUpMethod.includes('Instagram') && <label><span>Instagram chat URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://www.instagram.com/" required /></label>}{followUpMethod.includes('Mail') && <label><span>Gmail URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://mail.google.com/" required /></label>}{followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}<button className="primary crm-button"><CalendarClock size={15} /> Schedule</button></form>
+          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}>
+            <h3>Schedule follow-up</h3>
+            <label><span>Reminder</span><select className="field" name="dueAt" required defaultValue={reminderDates[0].value}>{reminderDates.map((date) => <option key={date.value} value={date.value}>{date.label}</option>)}</select></label>
+            {lead.followUps.length === 0 && <>
+              <label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => { setFollowUpMethod(event.target.value); setFollowUpDestination(''); }} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Other</option></select></label>
+              {followUpMethod.includes('WhatsApp') && <label><span>WhatsApp number</span><input className="field" name="destination" type="tel" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="+91 81289 27827" required /></label>}
+              {followUpMethod === 'Instagram MSG' && <label><span>Instagram chat URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://www.instagram.com/" required /></label>}
+              {followUpMethod === 'Mail' && <label><span>Gmail URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://mail.google.com/" required /></label>}
+              {followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}
+            </>}
+            <button className="primary crm-button"><CalendarClock size={15} /> Schedule</button>
+          </form>
         </section>
       </div>
       <section className="panel crm-detail-card">
