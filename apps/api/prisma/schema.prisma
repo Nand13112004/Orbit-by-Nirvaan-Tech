@@ -49,6 +49,7 @@ model Lead {
   email        String?
   phone        String?
   company      String?
+  other        String?
   status       LeadStatus @default(NEW)
   sourceId     String?
   source       LeadSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull, onUpdate: NoAction)

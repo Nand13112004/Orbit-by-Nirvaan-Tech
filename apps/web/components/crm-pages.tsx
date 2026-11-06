@@ -13,6 +13,7 @@ type Lead = {
   email?: string | null;
   phone?: string | null;
   company?: string | null;
+  other?: string | null;
   status: string;
   sourceId?: string | null;
   assigneeId: string;
@@ -155,6 +156,7 @@ export function NewLeadPage() {
       company: String(data.company).trim() || null,
       email: String(data.email).trim() || null,
       phone: String(data.phone).trim() || null,
+      other: String(data.other).trim() || null,
       status: String(data.status),
       ...(data.sourceId ? { sourceId: String(data.sourceId) } : {}),
       ...(data.assigneeId ? { assigneeId: String(data.assigneeId) } : {}),
@@ -179,6 +181,7 @@ export function NewLeadPage() {
         <label><span>Company</span><input className="field" name="company" maxLength={160} /></label>
         <label><span>Email</span><input className="field" name="email" type="email" maxLength={254} /></label>
         <label><span>Phone</span><input className="field" name="phone" type="tel" maxLength={40} /></label>
+        <label><span>Other</span><input className="field" name="other" maxLength={2000} /></label>
         <label><span>Lead source</span><select className="field" name="sourceId"><option value="">Not specified</option>{sources.data?.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></label>
         <label><span>Starting status</span><select className="field" name="status" defaultValue="NEW">{STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABELS[item]}</option>)}</select></label>
         {me.data?.user.role !== 'MEMBER' && <label><span>Assigned employee *</span><select className="field" name="assigneeId" required defaultValue=""><option value="" disabled>Select an employee</option>{users.data?.filter((item) => item.active && item.role !== 'ADMIN').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
@@ -213,7 +216,7 @@ export function LeadDetailsPage() {
     try {
       const method = String(form.get('method') ?? '');
       const description = method === 'Other' ? `Other: ${value}` : method;
-      const body = kind === 'note' ? { content: value } : { description, dueAt: new Date(String(form.get('dueAt'))).toISOString() };
+      const body = kind === 'note' ? { content: value } : { description, dueAt: dateOnlyAtNoonIso(String(form.get('dueAt'))) };
       await mutate(`/leads/${params.id}/${kind === 'note' ? 'notes' : 'follow-ups'}`, 'POST', body);
       formElement.reset();
       if (kind === 'follow-up') setFollowUpMethod('');
@@ -260,6 +263,7 @@ export function LeadDetailsPage() {
   if (leadQuery.isError) return <ErrorPanel message={leadQuery.error.message} />;
   const lead = leadQuery.data;
   if (!lead) return null;
+  const reminderDates = followUpDateOptions(lead.createdAt ?? new Date().toISOString());
 
   return <section className="crm-page">
     <Link className="crm-back-link" href="../leads"><ArrowLeft size={15} /> All leads</Link>
@@ -269,12 +273,12 @@ export function LeadDetailsPage() {
       <div className="crm-details-main">
         <section className="panel crm-detail-card">
           <h2>Contact information</h2>
-          <dl className="crm-contact-grid"><Detail label="Company" value={lead.company} /><Detail label="Email" value={lead.email} /><Detail label="Phone" value={lead.phone} /><Detail label="Source" value={lead.source?.name} /><Detail label="Assigned to" value={lead.assignee?.name} /><Detail label="Created" value={lead.createdAt ? formatDate(lead.createdAt) : '—'} /><Detail label="Last updated" value={formatDate(lead.updatedAt)} /></dl>
+          <dl className="crm-contact-grid"><Detail label="Company" value={lead.company} /><Detail label="Email" value={lead.email} /><Detail label="Phone" value={lead.phone} /><Detail label="Other" value={lead.other} /><Detail label="Source" value={lead.source?.name} /><Detail label="Assigned to" value={lead.assignee?.name} /><Detail label="Created" value={lead.createdAt ? formatDate(lead.createdAt) : '—'} /><Detail label="Last updated" value={formatDate(lead.updatedAt)} /></dl>
         </section>
         <section className="panel crm-detail-card">
           <h2>Follow-up history</h2>
           {lead.followUps.length ? <div className="crm-timeline">{lead.followUps.map((item) => <article key={item.id} className="crm-timeline-item"><span className={`crm-timeline-dot${item.completed ? ' is-complete' : ''}`} /><div><strong>{item.description}</strong><p>{formatDate(item.dueAt)} {item.completed ? '· Completed' : '· Scheduled'}</p>{!item.completed && <button className="quiet crm-small-button" onClick={() => void completeFollowUp(item.id)}><Check size={14} /> Mark complete</button>}</div></article>)}</div> : <p className="crm-muted">No follow-ups recorded.</p>}
-          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}><h3>Schedule follow-up</h3><label><span>Reminder</span><input className="field" type="datetime-local" name="dueAt" required min={localDateTimeValue()} /></label><label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => setFollowUpMethod(event.target.value)} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Last WhatsApp MSG</option><option>Last Instagram MSG</option><option>Last Mail</option><option>Other</option></select></label>{followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}<button className="primary crm-button"><CalendarClock size={15} /> Schedule</button></form>
+          <form className="crm-inline-form" onSubmit={(event) => void submitAction(event, 'follow-up')}><h3>Schedule follow-up</h3><label><span>Reminder</span><select className="field" name="dueAt" required defaultValue={reminderDates[0].value}>{reminderDates.map((date) => <option key={date.value} value={date.value}>{date.label}</option>)}</select></label><label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => setFollowUpMethod(event.target.value)} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Last WhatsApp MSG</option><option>Last Instagram MSG</option><option>Last Mail</option><option>Other</option></select></label>{followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}<button className="primary crm-button"><CalendarClock size={15} /> Schedule</button></form>
         </section>
       </div>
       <section className="panel crm-detail-card">
@@ -522,8 +526,17 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-function localDateTimeValue() {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().slice(0, 16);
+function followUpDateOptions(createdAt: string) {
+  const start = new Date(createdAt);
+  start.setHours(0, 0, 0, 0);
+  return Array.from({ length: 31 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return { value, label: `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}` };
+  });
+}
+
+function dateOnlyAtNoonIso(value: string) {
+  return new Date(`${value}T12:00:00`).toISOString();
 }

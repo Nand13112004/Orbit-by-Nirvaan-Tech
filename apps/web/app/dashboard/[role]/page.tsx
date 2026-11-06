@@ -264,7 +264,7 @@ function LeadFormModal({ currentUser, users, sources, onClose, onDone, onError }
     try {
       await mutate('/leads', 'POST', {
         name: form.get('name'), email: form.get('email') || undefined, company: form.get('company') || undefined,
-        phone: form.get('phone') || undefined, sourceId: form.get('sourceId') || undefined,
+        phone: form.get('phone') || undefined, other: form.get('other') || undefined, sourceId: form.get('sourceId') || undefined,
         assigneeId: form.get('assigneeId') || currentUser.id,
       });
       onDone();
@@ -277,7 +277,7 @@ function LeadFormModal({ currentUser, users, sources, onClose, onDone, onError }
   const assignees = currentUser.role === 'ADMIN' ? users.filter((item) => item.active && item.role !== 'ADMIN') : currentUser.role === 'MANAGER' ? users.filter((item) => item.active && (item.id === currentUser.id || item.managerId === currentUser.id)) : [];
   return <Modal title="Create a lead" onClose={onClose} preventClose={submitting}>
     <form className="space-y-4" onSubmit={submit} aria-busy={submitting}>
-      <Field name="name" label="Lead name" required /><Field name="email" label="Email" type="email" /><Field name="company" label="Company" /><Field name="phone" label="Phone" />
+      <Field name="name" label="Lead name" required /><Field name="email" label="Email" type="email" /><Field name="company" label="Company" /><Field name="phone" label="Phone" /><Field name="other" label="Other" />
       {sources.length > 0 && <div><label className="label" htmlFor="sourceId">Source</label><select className="field" name="sourceId" id="sourceId"><option value="">Select a source</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>}
       {currentUser.role !== 'MEMBER' && <div><label className="label" htmlFor="assigneeId">Assign to</label><select className="field" name="assigneeId" id="assigneeId" defaultValue={currentUser.role === 'MANAGER' ? currentUser.id : assignees[0]?.id ?? ''} required><option value="" disabled>Select an assignee</option>{assignees.map((item) => <option key={item.id} value={item.id}>{item.id === currentUser.id ? `${item.name} (you)` : item.name}</option>)}</select>{assignees.length === 0 && <p className="mt-1 text-xs text-amber-800">Create an eligible user before adding a lead.</p>}</div>}
       <button className="primary w-full" disabled={submitting || (currentUser.role !== 'MEMBER' && assignees.length === 0)}>{submitting ? 'Creating lead…' : 'Create lead'}</button>
