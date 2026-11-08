@@ -25,7 +25,7 @@ type Lead = {
 type LeadListItem = Lead & { followUps: { description: string; dueAt: string; destination?: string | null }[] };
 type LeadPageData = { items: LeadListItem[]; total: number; page: number; pageSize: number; totalPages: number };
 type User = { id: string; name: string; email: string; role: string; active: boolean; managerId?: string | null };
-type FollowUp = { id: string; leadId: string; description: string; dueAt: string; destination?: string | null; completed: boolean; lead: { id: string; name: string } };
+type FollowUp = { id: string; leadId: string; description: string; dueAt: string; destination?: string | null; firstContactMessage?: string | null; completed: boolean; lead: { id: string; name: string } };
 type Analytics = { totalLeads: number; byStatus: { status: string; _count: { _all: number } }[]; openFollowUps: number };
 const STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'WON', 'LOST'];
 const STATUS_LABELS: Record<string, string> = {
@@ -211,6 +211,16 @@ export function LeadDetailsPage() {
     queryKey: ['lead', params.id],
     queryFn: () => api<Lead & { notes: { id: string; content: string; createdAt: string; author: { name: string } }[]; followUps: FollowUp[] }>(`/leads/${params.id}`),
   });
+  const updateStatus = useMutation({
+    mutationFn: (status: string) => mutate(`/leads/${params.id}`, 'PATCH', { status }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['lead', params.id] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics'] }),
+      ]);
+    },
+  });
 
   async function submitAction(event: FormEvent<HTMLFormElement>, kind: 'note' | 'follow-up') {
     event.preventDefault();
@@ -228,6 +238,7 @@ export function LeadDetailsPage() {
         description,
         dueAt: dateOnlyAtNoonIso(String(form.get('dueAt'))),
         ...(destination ? { destination } : {}),
+        ...(['WhatsApp MSG', 'Instagram MSG', 'Mail'].includes(method) ? { firstContactMessage: String(form.get('firstContactMessage') ?? '').trim() } : {}),
       };
       await mutate(`/leads/${params.id}/${kind === 'note' ? 'notes' : 'follow-ups'}`, 'POST', body);
       formElement.reset();
@@ -324,8 +335,9 @@ export function LeadDetailsPage() {
 
   return <section className="crm-page">
     <Link className="crm-back-link" href="../leads"><ArrowLeft size={15} /> All leads</Link>
-    <PageHeader eyebrow="Lead details" title={lead.name} description={lead.company || 'Contact record'} action={<StatusPill status={lead.status} />} />
+    <PageHeader eyebrow="Lead details" title={lead.name} description={lead.company || 'Contact record'} action={<select className={`crm-status-select crm-status-${lead.status.toLowerCase()}`} aria-label="Lead status" value={lead.status} disabled={updateStatus.isPending} onChange={(event) => updateStatus.mutate(event.target.value)}>{STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABELS[item]}</option>)}</select>} />
     {error && <ErrorPanel message={error} />}
+    {updateStatus.isError && <ErrorPanel message={updateStatus.error.message} />}
     <div className="crm-details-grid">
       <div className="crm-details-main">
         <section className="panel crm-detail-card">
@@ -356,8 +368,11 @@ export function LeadDetailsPage() {
             {lead.followUps.length === 0 && <>
               <label><span>Notes</span><select className="field" name="method" value={followUpMethod} onChange={(event) => { setFollowUpMethod(event.target.value); setFollowUpDestination(''); }} required><option value="" disabled>Select a follow-up type</option><option>WhatsApp MSG</option><option>Instagram MSG</option><option>Mail</option><option>Other</option></select></label>
               {followUpMethod.includes('WhatsApp') && <label><span>WhatsApp number</span><input className="field" name="destination" type="tel" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="+91 81289 27827" required /></label>}
+              {followUpMethod.includes('WhatsApp') && <label><span>First contacted message</span><textarea className="field" name="firstContactMessage" maxLength={4000} required rows={3} placeholder="Enter the first message you sent this lead" /></label>}
               {followUpMethod === 'Instagram MSG' && <label><span>Instagram chat URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://www.instagram.com/" required /></label>}
+              {followUpMethod === 'Instagram MSG' && <label><span>First contacted message</span><textarea className="field" name="firstContactMessage" maxLength={4000} required rows={3} placeholder="Enter the first message you sent this lead" /></label>}
               {followUpMethod === 'Mail' && <label><span>Gmail URL</span><input className="field" name="destination" type="url" value={followUpDestination} onChange={(event) => setFollowUpDestination(event.target.value)} placeholder="https://mail.google.com/" required /></label>}
+              {followUpMethod === 'Mail' && <label><span>First contacted message</span><textarea className="field" name="firstContactMessage" maxLength={4000} required rows={3} placeholder="Enter the first message you sent this lead" /></label>}
               {followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}
             </>}
             <button className="primary crm-button"><CalendarClock size={15} /> Schedule</button>
@@ -602,8 +617,11 @@ function Detail({ label, value }: { label: string; value?: string | null }) {
 }
 
 function isAiDraftableFollowUp(item: FollowUp) {
-  const description = item.description.toLowerCase();
-  return description.includes('whatsapp') || description.includes('instagram') || description.includes('mail');
+  return isWhatsAppFollowUp(item) || item.description.toLowerCase().includes('instagram') || item.description.toLowerCase().includes('mail');
+}
+
+function isWhatsAppFollowUp(item: FollowUp) {
+  return item.description.toLowerCase().includes('whatsapp');
 }
 
 function csvCell(value: string) {
@@ -634,7 +652,7 @@ function whatsappDestination(value: string) {
   if (digits.length < 7 || digits.length > 15) {
     throw new Error('Enter a valid WhatsApp number with its country code');
   }
-  return `https://wa.me/+${digits}`;
+  return `https://wa.me/${digits}`;
 }
 
 function followUpDestinationFor(method: string, value: string) {

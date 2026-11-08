@@ -36,6 +36,16 @@ const followUpSchema = z.object({
   dueAt: z.string().datetime(),
   description: z.string().trim().min(1).max(2000),
   destination: z.string().url().max(2048).refine((value) => new URL(value).protocol === 'https:', 'Destination must use HTTPS').optional().nullable(),
+  firstContactMessage: z.string().trim().min(1).max(4000).optional(),
+}).superRefine((data, context) => {
+  const channelRequiresFirstMessage = ['whatsapp', 'instagram', 'mail'].some((channel) => data.description.toLowerCase().includes(channel));
+  if (channelRequiresFirstMessage && !data.firstContactMessage) {
+    context.addIssue({
+      code: 'custom',
+      path: ['firstContactMessage'],
+      message: 'Enter the first contacted message for this follow-up.',
+    });
+  }
 });
 
 @Controller('leads')
@@ -204,7 +214,14 @@ export class LeadsController {
     await this.ensureLead(user, id);
     const data = followUpSchema.parse(body);
     const followUp = await this.prisma.followUp.create({
-      data: { leadId: id, createdById: user.id, description: data.description, dueAt: new Date(data.dueAt), destination: data.destination },
+      data: {
+        leadId: id,
+        createdById: user.id,
+        description: data.description,
+        dueAt: new Date(data.dueAt),
+        destination: data.destination,
+        firstContactMessage: data.firstContactMessage,
+      },
     });
     this.analyticsCache.invalidate();
     return followUp;
@@ -259,7 +276,7 @@ export class LeadsController {
           messages: [
             {
               role: 'system',
-              content: 'Write a ready-to-send follow-up message for Nirvaan Tech about a possible website project. Match the requested channel and examples in tone: WhatsApp is warm and conversational with short paragraphs and a friendly emoji; Instagram is concise, friendly, and conversational with an emoji; Email is professional, with a salutation, several brief paragraphs, and a courteous close. Address a business as "<business name> Team" and an individual by their first name. Mention that this follows up on earlier outreach about a website and invite them to share their thoughts or requirements. Never invent business offerings, prior promises, sample work, prices, or facts not supplied. Sign WhatsApp drafts "Nand\\nNirvaan Tech", Instagram drafts "Nand\\nFounder, Nirvaan Tech"; do not add a sender signature to email. Output only the message text, with no subject line, explanation, quote marks, or Markdown formatting.',
+              content: 'Write a ready-to-send follow-up message for Nirvaan Tech about a possible website project. When an original contact message is supplied, use it as the context for the follow-up: acknowledge or naturally continue that specific outreach, do not repeat it verbatim, and do not imply a reply or other event that was not supplied. If no original message is supplied, follow up on the earlier outreach about a website. Match the requested channel and examples in tone: WhatsApp is warm and conversational with short paragraphs and MUST contain at least one actual, visible emoji character such as 😊, 👋, or 🙏; Instagram is concise, friendly, and conversational with an emoji; Email is professional, with a salutation, several brief paragraphs, and a courteous close. Address a business as "<business name> Team" and an individual by their first name. Invite them to share their thoughts or requirements. Never invent business offerings, prior promises, sample work, prices, or facts not supplied. Sign WhatsApp drafts "Nand\\nNirvaan Tech", Instagram drafts "Nand\\nFounder, Nirvaan Tech"; do not add a sender signature to email. Output only the message text, with no subject line, explanation, quote marks, or Markdown formatting.',
             },
             {
               role: 'user',
@@ -267,6 +284,7 @@ export class LeadsController {
                 channel,
                 leadName: lead.name,
                 company: lead.company,
+                originalContactMessage: followUp.firstContactMessage,
               }),
             },
           ],
@@ -299,7 +317,12 @@ export class LeadsController {
     if (!parsed.success) {
       throw new BadGatewayException('The AI service returned an unexpected response.');
     }
-    return { message: parsed.data.choices[0].message.content };
+    const message = parsed.data.choices[0].message.content;
+    return {
+      message: channel === 'WhatsApp' && !/\p{Extended_Pictographic}/u.test(message)
+        ? `${message} 😊`
+        : message,
+    };
   }
 
   @Patch(':id/follow-ups/:followUpId')

@@ -1,12 +1,32 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Bot, Send, Sparkles, X } from 'lucide-react';
 import { streamChat } from '@/lib/api';
-import { RobotAssistant } from '@/components/robot-assistant';
+import { RobotAssistant, ROBOT_ACTIONS, type RobotState } from '@/components/robot-assistant';
 
 type Message = { role: 'user' | 'assistant'; content: string };
 const suggestions = ['How do I manage leads?', 'How do follow-up reminders work?'];
+
+const menuStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  justifyContent: 'center',
+  gap: 6,
+  maxWidth: 420,
+  margin: '4px auto 10px',
+};
+const chipStyle: CSSProperties = {
+  padding: '6px 11px',
+  borderRadius: 999,
+  border: '1px solid rgba(255,255,255,0.6)',
+  background: 'rgba(255,255,255,0.6)',
+  backdropFilter: 'blur(8px)',
+  color: '#1f2a44',
+  fontSize: 12.5,
+  fontWeight: 600,
+  cursor: 'pointer',
+};
 
 export function Chatbot() {
   const [open, setOpen] = useState(false);
@@ -16,8 +36,16 @@ export function Chatbot() {
   const [sending, setSending] = useState(false);
   const [hasReceivedToken, setHasReceivedToken] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [manualAction, setManualAction] = useState<RobotState | null>(null);
   const sendingRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const actionTimers = useRef<number[]>([]);
+
+  // Priority: thinking while sending > picked action > lying down while typing > happy > idle.
+  const robotState: RobotState = sending
+    ? 'thinking'
+    : manualAction ?? (input.trim() ? 'listening' : celebrating ? 'happy' : 'idle');
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -37,6 +65,23 @@ export function Chatbot() {
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) setMenuOpen(false);
+  }, [open]);
+
+  useEffect(() => () => actionTimers.current.forEach((id) => window.clearTimeout(id)), []);
+
+  function playAction(state: RobotState, ms: number) {
+    actionTimers.current.forEach((id) => window.clearTimeout(id));
+    actionTimers.current = [];
+    setMenuOpen(false);
+    setManualAction(null); // reset first so picking the same action again replays it
+    actionTimers.current.push(
+      window.setTimeout(() => setManualAction(state), 60),
+      window.setTimeout(() => setManualAction(null), 60 + ms),
+    );
+  }
+
   async function sendMessage(text: string) {
     const content = text.trim();
     if (!content || sendingRef.current) return;
@@ -46,6 +91,7 @@ export function Chatbot() {
     setError('');
     setHasReceivedToken(false);
     setCelebrating(false);
+    setManualAction(null);
     setInput('');
     const conversation: Message[] = [...messages.slice(-19), { role: 'user', content }];
     const assistantIndex = conversation.length;
@@ -87,12 +133,22 @@ export function Chatbot() {
             <div className="orbit-chat-robot-column">
               <div className="orbit-chat-robot-glow" aria-hidden="true" />
               <RobotAssistant
-                state={sending ? 'thinking' : celebrating ? 'happy' : 'idle'}
+                state={robotState}
                 disabled={false}
-                onClick={() => undefined}
-                label="Orbit Assistant robot"
+                onClick={() => setMenuOpen((value) => !value)}
+                label="Orbit Assistant robot. Click to pick an action"
+                expanded={menuOpen}
                 fullSize
               />
+              {menuOpen && <div className="orbit-chat-action-menu" role="menu" aria-label="Robot actions" style={menuStyle}>
+                {ROBOT_ACTIONS.map((action: { state: RobotState; ms: number; emoji: string; label: string }) => <button
+                  type="button"
+                  role="menuitem"
+                  key={action.state}
+                  style={chipStyle}
+                  onClick={() => playAction(action.state, action.ms)}
+                >{action.emoji} {action.label}</button>)}
+              </div>}
               <form className="orbit-chat-form orbit-chat-glass-form" onSubmit={submit}>
                 <textarea autoFocus aria-label="Message Orbit Assistant" placeholder="Ask me anything…" value={input} onChange={(event) => setInput(event.target.value)} maxLength={4000} rows={1} disabled={sending} onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
