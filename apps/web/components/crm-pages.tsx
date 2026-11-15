@@ -234,11 +234,14 @@ export function LeadDetailsPage() {
       const destination = kind === 'follow-up'
         ? savedFollowUp?.destination ?? followUpDestinationFor(method, followUpDestination)
         : undefined;
+      const firstContactMessage = requiresFirstContactMessage(description)
+        ? String(form.get('firstContactMessage') ?? savedFollowUp?.firstContactMessage ?? '').trim()
+        : undefined;
       const body = kind === 'note' ? { content: value } : {
         description,
         dueAt: dateOnlyAtNoonIso(String(form.get('dueAt'))),
         ...(destination ? { destination } : {}),
-        ...(['WhatsApp MSG', 'Instagram MSG', 'Mail'].includes(method) ? { firstContactMessage: String(form.get('firstContactMessage') ?? '').trim() } : {}),
+        ...(firstContactMessage ? { firstContactMessage } : {}),
       };
       await mutate(`/leads/${params.id}/${kind === 'note' ? 'notes' : 'follow-ups'}`, 'POST', body);
       formElement.reset();
@@ -375,6 +378,7 @@ export function LeadDetailsPage() {
               {followUpMethod === 'Mail' && <label><span>First contacted message</span><textarea className="field" name="firstContactMessage" maxLength={4000} required rows={3} placeholder="Enter the first message you sent this lead" /></label>}
               {followUpMethod === 'Other' && <label><span>Other notes</span><textarea className="field" name="content" maxLength={2000} required rows={3} /></label>}
             </>}
+            {lead.followUps.length > 0 && requiresFirstContactMessage(lead.followUps[0].description) && <label><span>First contacted message</span><textarea className="field" name="firstContactMessage" maxLength={4000} required rows={3} defaultValue={lead.followUps[0].firstContactMessage ?? ''} placeholder="Enter the first message you sent this lead" /></label>}
             <button className="primary crm-button"><CalendarClock size={15} /> Schedule</button>
           </form>
         </section>
@@ -618,6 +622,11 @@ function Detail({ label, value }: { label: string; value?: string | null }) {
 
 function isAiDraftableFollowUp(item: FollowUp) {
   return isWhatsAppFollowUp(item) || item.description.toLowerCase().includes('instagram') || item.description.toLowerCase().includes('mail');
+}
+
+function requiresFirstContactMessage(description: string) {
+  const normalized = description.toLowerCase();
+  return ['whatsapp', 'instagram', 'mail'].some((channel) => normalized.includes(channel));
 }
 
 function isWhatsAppFollowUp(item: FollowUp) {
